@@ -53,14 +53,34 @@ project(
 pico_sdk_init()
 
 # ------------------------------------------------------------------------
+# Compile subdirectories as libraries
+# ------------------------------------------------------------------------
+
+set(SUBDIRS
+  ble
+  lorawan
+  ui
+)
+
+set(USER_LIBS "")
+
+foreach(SUBDIR ${SUBDIRS})
+  add_subdirectory(${SUBDIR})
+  add_library(${SUBDIR} STATIC ${SRC_FILES})
+  target_compile_options(${SUBDIR} PRIVATE -O3 -Wall -Wextra -Wpedantic -Werror)
+  set(USER_LIBS ${USER_LIBS} ${SUBDIR})
+endforeach(SUBDIR)
+
+# ------------------------------------------------------------------------
 # Add main executable
+# ------------------------------------------------------------------------
 
 add_executable(blood_pressure
   blink.c
 )
 
 # pull in common dependencies
-target_link_libraries(blood_pressure pico_stdlib)
+target_link_libraries(blood_pressure ${USER_LIBS} pico_stdlib)
 
 if (PICO_CYW43_SUPPORTED)
     target_link_libraries(blood_pressure pico_cyw43_arch_none)
