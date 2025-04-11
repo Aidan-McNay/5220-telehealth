@@ -65,10 +65,29 @@ project(
   LANGUAGES C CXX ASM
 )
 pico_sdk_init()
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+# ------------------------------------------------------------------------
+# btstack configuration
+# ------------------------------------------------------------------------
+
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}/ble # For btstack config
+)
+add_compile_definitions(
+  RUNNING_AS_CLIENT=1
+)
 
 # ------------------------------------------------------------------------
 # Compile subdirectories as libraries
 # ------------------------------------------------------------------------
+
+set(PICO_LIBS
+  pico_stdlib
+  pico_btstack_ble
+  pico_btstack_cyw43
+  pico_cyw43_arch_none
+)
 
 set(SUBDIRS
   ble
@@ -81,7 +100,14 @@ set(USER_LIBS "")
 foreach(SUBDIR ${SUBDIRS})
   add_subdirectory(${SUBDIR})
   add_library(${SUBDIR} STATIC ${SRC_FILES})
-  target_compile_options(${SUBDIR} PRIVATE -O3 -Wall -Wextra -Wpedantic -Werror)
+  target_link_libraries(${SUBDIR} ${PICO_LIBS})
+  foreach(SRC_FILE ${SRC_FILES})
+    set_source_files_properties(
+      ${SRC_FILE}
+      PROPERTIES
+      COMPILE_OPTIONS -O3 -Wall -Wextra -Wpedantic -Werror
+    )
+  endforeach()
   set(USER_LIBS ${USER_LIBS} ${SUBDIR})
 endforeach(SUBDIR)
 
@@ -94,11 +120,7 @@ add_executable(blood_pressure
 )
 
 # pull in common dependencies
-target_link_libraries(blood_pressure ${USER_LIBS} pico_stdlib)
-
-if (PICO_CYW43_SUPPORTED)
-    target_link_libraries(blood_pressure pico_cyw43_arch_none)
-endif()
+target_link_libraries(blood_pressure ${USER_LIBS} ${PICO_LIBS})
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(blood_pressure)
