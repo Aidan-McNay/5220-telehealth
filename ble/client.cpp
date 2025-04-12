@@ -13,7 +13,7 @@
 // Global state for handling callbacks
 // -----------------------------------------------------------------------
 
-BaseClient* curr_client = nullptr;
+Client* curr_client = nullptr;
 
 void global_gatt_client_event_handler( uint8_t  packet_type,
                                        uint16_t channel, uint8_t* packet,

@@ -58,18 +58,7 @@ typedef gatt_client_characteristic_descriptor_t
 // Client
 // -----------------------------------------------------------------------
 
-class BaseClient {
-  // Just a class with necessary handlers, to avoid templating issues
- public:
-  virtual void gatt_client_event_handler( uint8_t  packet_type,
-                                          uint16_t channel,
-                                          uint8_t* packet,
-                                          uint16_t size )          = 0;
-  virtual void hci_event_handler( uint8_t packet_type, uint16_t channel,
-                                  uint8_t* packet, uint16_t size ) = 0;
-};
-
-class Client : public BaseClient {
+class Client {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // BLE Definitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -157,11 +146,10 @@ class Client : public BaseClient {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  public:
   void gatt_client_event_handler( uint8_t packet_type, uint16_t channel,
-                                  uint8_t* packet,
-                                  uint16_t size ) override;
+                                  uint8_t* packet, uint16_t size );
   void gatt_client_notification_handler( uint8_t* packet );
   void hci_event_handler( uint8_t packet_type, uint16_t channel,
-                          uint8_t* packet, uint16_t size ) override;
+                          uint8_t* packet, uint16_t size );
 };
 
 #endif  // BLE_CLIENT_H
