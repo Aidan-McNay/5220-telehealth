@@ -697,15 +697,21 @@ void Client::print()
   if ( state != TC_W4_READY )
     return;
   for ( int idx = 0; idx < num_characteristics_discovered; idx++ ) {
-    printf( "%d:\n", idx );
-    printf( " - Description: %s\n",
+    printf( " - Characteristic %d:\n", idx );
+    printf( "    - UUID128: %s\n",
+            uuid128_to_str( server_characteristic[idx].uuid128 ) );
+    printf( "    - Description: %s\n",
             server_characteristic_user_description[idx] );
 
-    printf( " - Permissions: " );
+    printf( "    - Permissions: " );
     print_permissions( server_characteristic[idx].properties );
     printf( "\n" );
 
-    printf( " - Value: %s", server_characteristic_values[idx] );
+    printf( "    - Value Handle: " );
+    printf( "0x%X", server_characteristic[idx].value_handle );
+    printf( "\n" );
+
+    printf( "    - Value: %s", server_characteristic_values[idx] );
     printf( "\n" );
   }
 }

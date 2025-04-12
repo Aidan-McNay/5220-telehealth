@@ -19,6 +19,9 @@
 // Maximum length of a BLE Characteristic Value
 #define GATT_MAX_VALUE_LENGTH 100
 
+// Maximum number of services - adjust if necessary
+#define MAX_SERVICES 7
+
 // Maximum number of characteristics - adjust if necessary
 #define MAX_CHARACTERISTICS 25
 

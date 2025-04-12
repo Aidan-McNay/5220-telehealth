@@ -14,6 +14,8 @@ Omron blood_pressure;
 // -----------------------------------------------------------------------
 // A thread to wait until characteristics are ready, then print them
 
+bool first_time = true;
+
 static PT_THREAD( print_characteristics( struct pt *pt ) )
 {
   PT_BEGIN( pt );
@@ -25,8 +27,10 @@ static PT_THREAD( print_characteristics( struct pt *pt ) )
   }
 
   // Print characteristics
-  blood_pressure.print();
-  PT_EXIT( pt );
+  if ( first_time ) {
+    first_time = false;
+    blood_pressure.print();
+  }
   PT_END( pt );
 }
 
