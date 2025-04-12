@@ -37,14 +37,23 @@ void global_hci_event_handler( uint8_t packet_type, uint16_t channel,
 // RAII Management (Constructor, Destructor)
 // -----------------------------------------------------------------------
 
-Client::Client()
-    : state( TC_OFF ),
-      listener_registered( false ),
-      curr_char_idx( 0 ),
-      curr_char_descr_idx( 0 ),
-      num_characteristics_discovered( 0 )
+void Client::reset()
+{
+  listener_registered              = false;
+  curr_service_idx                 = 0;
+  curr_char_idx                    = 0;
+  curr_char_descr_idx              = 0;
+  curr_total_char_idx              = 0;
+  total_characteristics_discovered = 0;
+}
+
+Client::Client() : state( TC_OFF )
 {
   curr_client = this;
+  reset();
+  for ( int i = 0; i < MAX_SERVICES; i++ ) {
+    num_characteristics_discovered[i] = 0;
+  }
 
   // Initialize CYW43 Architecture (should check if non-zero, but avoid in
   // constructor)
@@ -90,6 +99,7 @@ void Client::disconnect_from_server()
     gatt_client_stop_listening_for_characteristic_value_updates(
         &notification_listener );
   }
+  reset();
   state = TC_OFF;
   hci_power_control( HCI_POWER_SLEEP );
 }
@@ -135,37 +145,30 @@ void Client::connect()
 void Client::service_discovery()
 {
   debug( "[BLE] Entering service discovery...\n" );
-  state                  = TC_W4_SERVICE_RESULT;
-  service_uuid_t service = get_service_name();
-  if ( std::holds_alternative<uint16_t>( service ) ) {
-    gatt_client_discover_primary_services_by_uuid16(
-        global_gatt_client_event_handler, connection_handle,
-        std::get<uint16_t>( service ) );
-  }
-  else {
-    gatt_client_discover_primary_services_by_uuid128(
-        global_gatt_client_event_handler, connection_handle,
-        std::get<const uint8_t*>( service ) );
-  }
+  state = TC_W4_SERVICE_RESULT;
+  gatt_client_discover_primary_services( global_gatt_client_event_handler,
+                                         connection_handle );
 }
 
 void Client::characteristic_discovery()
 {
-  debug( "[BLE] Discovering characteristic %d...\n", curr_char_idx );
-  state = TC_W4_CHARACTERISTIC_RESULT;
+  debug( "[BLE] Discovering characteristics for service %d...\n",
+         curr_service_idx );
+  state         = TC_W4_CHARACTERISTIC_RESULT;
+  curr_char_idx = 0;
   gatt_client_discover_characteristics_for_service(
       global_gatt_client_event_handler, connection_handle,
-      &server_service );
+      &server_service[curr_service_idx] );
 }
 
 void Client::characteristic_descriptor_discovery()
 {
   debug( "[BLE] Discovering descriptor for characteristic %d...\n",
-         curr_char_idx );
+         curr_char_idx + curr_total_char_idx );
   state = TC_W4_CHARACTERISTIC_DESCRIPTOR;
   gatt_client_discover_characteristic_descriptors(
       global_gatt_client_event_handler, connection_handle,
-      &server_characteristic[curr_char_idx] );
+      &server_characteristic[curr_char_idx + curr_total_char_idx] );
 }
 
 // Helper function to check which descriptor is the description
@@ -177,33 +180,36 @@ bool is_description( gatt_client_characteristic_descriptor_t descriptor )
 void Client::characteristic_description_discovery()
 {
   debug( "[BLE] Discovering description for characteristic %d...\n",
-         curr_char_idx );
+         curr_char_idx + curr_total_char_idx );
   state = TC_W4_CHARACTERISTIC_DESCRIPTION;
 
   // Get the description from the correct descriptor
   if ( is_description(
-           server_characteristic_descriptor[curr_char_idx][0] ) ) {
+           server_characteristic_descriptor[curr_char_idx +
+                                            curr_total_char_idx][0] ) ) {
     // 0 has the description
     gatt_client_read_characteristic_descriptor(
         global_gatt_client_event_handler, connection_handle,
-        &server_characteristic_descriptor[curr_char_idx][0] );
+        &server_characteristic_descriptor[curr_char_idx +
+                                          curr_total_char_idx][0] );
   }
   else {
     // 1 has the description
     gatt_client_read_characteristic_descriptor(
         global_gatt_client_event_handler, connection_handle,
-        &server_characteristic_descriptor[curr_char_idx][1] );
+        &server_characteristic_descriptor[curr_char_idx +
+                                          curr_total_char_idx][1] );
   }
 }
 
 void Client::read_characteristic_value()
 {
   debug( "[BLE] Discovering value for characteristic %d...\n",
-         curr_char_idx );
+         curr_char_idx + curr_total_char_idx );
   state = TC_W4_CHARACTERISTIC_VALUE;
   gatt_client_read_value_of_characteristic(
       global_gatt_client_event_handler, connection_handle,
-      &server_characteristic[curr_char_idx] );
+      &server_characteristic[curr_char_idx + curr_total_char_idx] );
 }
 
 void Client::read_characteristic_config()
@@ -211,30 +217,41 @@ void Client::read_characteristic_config()
   state = TC_W4_CHARACTERISTIC_CONFIG;
 
   // Find next descriptor for a configuration
-  while ( ( curr_char_idx < num_characteristics_discovered ) &&
-          ( server_characteristic_descriptor[curr_char_idx][0].uuid16 !=
-            GATT_CLIENT_CHARACTERISTICS_CONFIGURATION ) ) {
+  while ( ( curr_char_idx <
+            num_characteristics_discovered[curr_service_idx] ) &&
+          ( server_characteristic_descriptor[curr_char_idx +
+                                             curr_total_char_idx][0]
+                .uuid16 != GATT_CLIENT_CHARACTERISTICS_CONFIGURATION ) ) {
     curr_char_idx++;
   }
 
   // If we found one, get its configuration
-  if ( curr_char_idx < num_characteristics_discovered ) {
+  if ( curr_char_idx <
+       num_characteristics_discovered[curr_service_idx] ) {
     debug( "[BLE] Discovering configuration for characteristic %d...\n",
-           curr_char_idx );
+           curr_char_idx + curr_total_char_idx );
     gatt_client_read_characteristic_descriptor(
         global_gatt_client_event_handler, connection_handle,
-        &server_characteristic_descriptor[curr_char_idx][0] );
+        &server_characteristic_descriptor[curr_char_idx +
+                                          curr_total_char_idx][0] );
+    return;
+  }
+
+  // If none left to get, check for remaining services
+  curr_total_char_idx += num_characteristics_discovered[curr_service_idx];
+  curr_service_idx++;
+  if ( curr_service_idx < num_services_discovered ) {
+    characteristic_discovery();
+    return;
   }
 
   // If none left to get, move to notifications
-  else {
-    debug( "[BLE] All characteristics discovered!\n" );
-    state               = TC_W4_READY;
-    listener_registered = true;
-    gatt_client_listen_for_characteristic_value_updates(
-        &notification_listener, global_gatt_client_event_handler,
-        connection_handle, NULL );
-  }
+  debug( "[BLE] All characteristics discovered!\n" );
+  state               = TC_W4_READY;
+  listener_registered = true;
+  gatt_client_listen_for_characteristic_value_updates(
+      &notification_listener, global_gatt_client_event_handler,
+      connection_handle, NULL );
 }
 
 // -----------------------------------------------------------------------
@@ -284,14 +301,17 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
         // Information about service (store)
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_SERVICE_QUERY_RESULT:
-          gatt_event_service_query_result_get_service( packet,
-                                                       &server_service );
+          gatt_event_service_query_result_get_service(
+              packet, &( server_service[curr_service_idx++] ) );
           break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         // Finished with service result (discover characteristics)
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_QUERY_COMPLETE:
+          num_services_discovered = curr_service_idx;
+          curr_service_idx        = 0;
+
           // Make sure no errors
           att_status = gatt_event_query_complete_get_att_status( packet );
           if ( att_status != ATT_ERROR_SUCCESS ) {
@@ -319,15 +339,21 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
         // Characteristic that was discovered (store)
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_CHARACTERISTIC_QUERY_RESULT:
+          server_characteristic_service_idx[curr_char_idx +
+                                            curr_total_char_idx] =
+              curr_service_idx;
           gatt_event_characteristic_query_result_get_characteristic(
-              packet, &server_characteristic[curr_char_idx++] );
+              packet, &server_characteristic[( curr_char_idx++ ) +
+                                             curr_total_char_idx] );
           break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         // Done with characteristics (move to descriptors)
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_QUERY_COMPLETE:
-          num_characteristics_discovered = curr_char_idx;
+          num_characteristics_discovered[curr_service_idx] =
+              curr_char_idx;
+          total_characteristics_discovered += curr_char_idx;
 
           curr_char_idx       = 0;
           curr_char_descr_idx = 0;
@@ -359,7 +385,8 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
         case GATT_EVENT_ALL_CHARACTERISTIC_DESCRIPTORS_QUERY_RESULT:
           gatt_event_all_characteristic_descriptors_query_result_get_characteristic_descriptor(
               packet,
-              &server_characteristic_descriptor[curr_char_idx]
+              &server_characteristic_descriptor[curr_char_idx +
+                                                curr_total_char_idx]
                                                [curr_char_descr_idx++] );
           break;
 
@@ -371,7 +398,8 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           curr_char_descr_idx = 0;
 
           // Discover next characteristic, if any remaining
-          if ( curr_char_idx < num_characteristics_discovered ) {
+          if ( curr_char_idx <
+               num_characteristics_discovered[curr_service_idx] ) {
             characteristic_descriptor_discovery();
             break;
           }
@@ -404,9 +432,12 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
                   packet );
 
           // Store description (including null-termination)
-          memcpy( server_characteristic_user_description[curr_char_idx],
-                  description, description_length );
-          server_characteristic_user_description[curr_char_idx]
+          memcpy(
+              server_characteristic_user_description[curr_char_idx +
+                                                     curr_total_char_idx],
+              description, description_length );
+          server_characteristic_user_description[curr_char_idx +
+                                                 curr_total_char_idx]
                                                 [description_length] =
                                                     '\0';
           break;
@@ -418,7 +449,8 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           curr_char_idx++;
 
           // Read remaining descriptions, if any
-          if ( curr_char_idx < num_characteristics_discovered ) {
+          if ( curr_char_idx <
+               num_characteristics_discovered[curr_service_idx] ) {
             characteristic_description_discovery();
             break;
           }
@@ -451,10 +483,12 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
               packet );
 
           // Store value (including null-termination)
-          memcpy( server_characteristic_values[curr_char_idx], value,
-                  value_length );
-          server_characteristic_values[curr_char_idx][value_length] =
-              '\0';
+          memcpy( server_characteristic_values[curr_char_idx +
+                                               curr_total_char_idx],
+                  value, value_length );
+          server_characteristic_values[curr_char_idx +
+                                       curr_total_char_idx]
+                                      [value_length] = '\0';
           break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -464,7 +498,8 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           curr_char_idx++;
 
           // Read remaining values, if any
-          if ( curr_char_idx < num_characteristics_discovered ) {
+          if ( curr_char_idx <
+               num_characteristics_discovered[curr_service_idx] ) {
             read_characteristic_value();
             break;
           }
@@ -497,12 +532,14 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
               packet );
 
           // Store the configuration
-          server_characteristic_configurations[curr_char_idx] =
+          server_characteristic_configurations[curr_char_idx +
+                                               curr_total_char_idx] =
               little_endian_read_16( config, 0 );
 
           // Check whether notifications are enabled
-          notifications_enabled[curr_char_idx] = ( (
-              char) server_characteristic_configurations[curr_char_idx] );
+          notifications_enabled[curr_char_idx + curr_total_char_idx] =
+              ( (char) server_characteristic_configurations
+                    [curr_char_idx + curr_total_char_idx] );
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         // Done with configuration
@@ -537,7 +574,7 @@ void Client::gatt_client_notification_handler( uint8_t* packet )
 
   // Find the characteristic that the value is for
   int value_char_idx = -1;
-  for ( int i = 0; i < num_characteristics_discovered; i++ ) {
+  for ( int i = 0; i < total_characteristics_discovered; i++ ) {
     if ( value_handle == server_characteristic[i].value_handle ) {
       value_char_idx = i;
     }
@@ -649,6 +686,7 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
         gatt_client_stop_listening_for_characteristic_value_updates(
             &notification_listener );
       }
+      reset();
 
       // If we're not off, start listening again
       if ( state != TC_OFF ) {
@@ -696,7 +734,15 @@ void Client::print()
 {
   if ( state != TC_W4_READY )
     return;
-  for ( int idx = 0; idx < num_characteristics_discovered; idx++ ) {
+
+  int service_idx = -1;
+  for ( int idx = 0; idx < total_characteristics_discovered; idx++ ) {
+    if ( service_idx != server_characteristic_service_idx[idx] ) {
+      service_idx = server_characteristic_service_idx[idx];
+      printf( "Service %d:\n", service_idx );
+      printf( " - UUID128: %s\n",
+              uuid128_to_str( server_service[service_idx].uuid128 ) );
+    }
     printf( " - Characteristic %d:\n", idx );
     printf( "    - UUID128: %s\n",
             uuid128_to_str( server_characteristic[idx].uuid128 ) );

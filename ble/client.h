@@ -106,7 +106,8 @@ class Client {
   hci_con_handle_t connection_handle;
 
   // Service information
-  gatt_client_service_t server_service;
+  gatt_client_service_t server_service[MAX_SERVICES];
+  int                   num_services_discovered;
 
   // Listener
   bool                       listener_registered;
@@ -115,6 +116,7 @@ class Client {
   // Characteristics
   char                         notifications_enabled[MAX_CHARACTERISTICS];
   gatt_client_characteristic_t server_characteristic[MAX_CHARACTERISTICS];
+  int server_characteristic_service_idx[MAX_CHARACTERISTICS];
   gatt_client_characteristic_descriptors_t
       server_characteristic_descriptor[MAX_CHARACTERISTICS];
   uint8_t
@@ -123,10 +125,13 @@ class Client {
   char server_characteristic_values[MAX_CHARACTERISTICS]
                                    [GATT_MAX_VALUE_LENGTH];
   uint16_t server_characteristic_configurations[MAX_CHARACTERISTICS];
-  int      num_characteristics_discovered;
+  int      num_characteristics_discovered[MAX_SERVICES];
+  int      total_characteristics_discovered;
 
   // Characteristic helper values
+  int curr_service_idx;
   int curr_char_idx;
+  int curr_total_char_idx;
   int curr_char_descr_idx;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -137,6 +142,7 @@ class Client {
   virtual bool correct_service( uint8_t* advertisement_report ) = 0;
 
   // Helper functions for state transitions
+  void reset();
   void off();
   void start();
   void connect();
