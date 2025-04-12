@@ -83,6 +83,7 @@ add_compile_definitions(
 # ------------------------------------------------------------------------
 
 set(PICO_LIBS
+  hardware_sync
   pico_stdlib
   pico_btstack_ble
   pico_btstack_cyw43

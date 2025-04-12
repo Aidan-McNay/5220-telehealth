@@ -12,7 +12,7 @@
 // Global state for handling callbacks
 // -----------------------------------------------------------------------
 
-Client* curr_client = nullptr;
+BaseClient* curr_client = nullptr;
 
 void global_gatt_client_event_handler( uint8_t  packet_type,
                                        uint16_t channel, uint8_t* packet,
@@ -24,18 +24,71 @@ void global_gatt_client_event_handler( uint8_t  packet_type,
   }
 }
 
-// -----------------------------------------------------------------------
-// RAII Management
-// -----------------------------------------------------------------------
-
-Client::Client() : state( TC_OFF ), listener_registered( false )
+void global_hci_event_handler( uint8_t packet_type, uint16_t channel,
+                               uint8_t* packet, uint16_t size )
 {
-  curr_client = this;
+  if ( curr_client ) {
+    curr_client->hci_event_handler( packet_type, channel, packet, size );
+  }
 }
 
-Client::~Client()
+// -----------------------------------------------------------------------
+// RAII Management (Constructor, Destructor)
+// -----------------------------------------------------------------------
+
+template <int C>
+Client<C>::Client()
+    : state( TC_OFF ),
+      listener_registered( false ),
+      curr_char_idx( 0 ),
+      curr_char_descr_idx( 0 ),
+      num_characteristics_discovered( 0 )
+{
+  curr_client = this;
+  PT_SEM_SAFE_INIT( &characteristics_discovered, 0 );
+
+  // Initialize CYW43 Architecture (should check if non-zero, but avoid in
+  // constructor)
+  cyw43_arch_init();
+
+  // Initialize L2CAP and Security Manager
+  l2cap_init();
+  sm_init();
+  sm_set_io_capabilities( IO_CAPABILITY_NO_INPUT_NO_OUTPUT );
+
+  // Setup empty ATT server - only needed if LE Peripheral does ATT
+  // queries on its own, e.g. Android and iOS
+  att_server_init( NULL, NULL, NULL );
+
+  // Initialize GATT client
+  gatt_client_init();
+
+  // Register the HCI event callback function
+  hci_event_callback_registration.callback = &global_hci_event_handler;
+  hci_add_event_handler( &hci_event_callback_registration );
+}
+
+template <int C>
+Client<C>::~Client()
 {
   curr_client = nullptr;
+}
+
+// -----------------------------------------------------------------------
+// Connecting and disconnecting from server
+// -----------------------------------------------------------------------
+// Just change the power on the interface
+
+template <int C>
+void Client<C>::connect_to_server()
+{
+  hci_power_control( HCI_POWER_ON );
+}
+
+template <int C>
+void Client<C>::disconnect_from_server()
+{
+  hci_power_control( HCI_POWER_SLEEP );
 }
 
 // -----------------------------------------------------------------------
@@ -43,7 +96,8 @@ Client::~Client()
 // -----------------------------------------------------------------------
 // Check whether an advertisement report contains our service
 
-bool Client::correct_service( uint8_t* advertisement_report )
+template <int C>
+bool Client<C>::correct_service( uint8_t* advertisement_report )
 {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Get advertisement data
@@ -84,7 +138,8 @@ bool Client::correct_service( uint8_t* advertisement_report )
 // State transition helper functions
 // -----------------------------------------------------------------------
 
-void Client::off()
+template <int C>
+void Client<C>::off()
 {
   state = TC_OFF;
 }
@@ -94,7 +149,8 @@ void Client::off()
 #define GAP_SCAN_INTERVAL 0x0030  // 0x30 * 6.25ms = 300ms
 #define GAP_SCAN_WINDOW 0x0030
 
-void Client::start()
+template <int C>
+void Client<C>::start()
 {
   state = TC_W4_SCAN_RESULT;
 
@@ -104,13 +160,15 @@ void Client::start()
   gap_start_scan();
 }
 
-void Client::connect()
+template <int C>
+void Client<C>::connect()
 {
   state = TC_W4_CONNECT;
   gap_connect( server_addr, server_addr_type );
 }
 
-void Client::service_discovery()
+template <int C>
+void Client<C>::service_discovery()
 {
   state = TC_W4_SERVICE_RESULT;
   gatt_client_discover_primary_services_by_uuid128(
@@ -118,15 +176,401 @@ void Client::service_discovery()
       get_service_name() );
 }
 
+template <int C>
+void Client<C>::characteristic_discovery()
+{
+  state = TC_W4_CHARACTERISTIC_RESULT;
+  gatt_client_discover_characteristics_for_service(
+      global_gatt_client_event_handler, connection_handle,
+      &server_service );
+}
+
+template <int C>
+void Client<C>::characteristic_descriptor_discovery()
+{
+  state = TC_W4_CHARACTERISTIC_DESCRIPTOR;
+  gatt_client_discover_characteristic_descriptors(
+      global_gatt_client_event_handler, connection_handle,
+      &server_characteristic[curr_char_idx] );
+}
+
+// Helper function to check which descriptor is the description
+bool is_description( gatt_client_characteristic_descriptor_t descriptor )
+{
+  return descriptor.uuid16 == GATT_CHARACTERISTIC_USER_DESCRIPTION;
+}
+
+template <int C>
+void Client<C>::characteristic_description_discovery()
+{
+  state = TC_W4_CHARACTERISTIC_DESCRIPTION;
+
+  // Get the description from the correct descriptor
+  if ( is_description(
+           server_characteristic_descriptor[curr_char_idx][0] ) ) {
+    // 0 has the description
+    gatt_client_read_characteristic_descriptor(
+        global_gatt_client_event_handler, connection_handle,
+        &server_characteristic_descriptor[curr_char_idx][0] );
+  }
+  else {
+    // 1 has the description
+    gatt_client_read_characteristic_descriptor(
+        global_gatt_client_event_handler, connection_handle,
+        &server_characteristic_descriptor[curr_char_idx][1] );
+  }
+}
+
+template <int C>
+void Client<C>::read_characteristic_value()
+{
+  state = TC_W4_CHARACTERISTIC_VALUE;
+  gatt_client_read_value_of_characteristic(
+      global_gatt_client_event_handler, connection_handle,
+      &server_characteristic[curr_char_idx] );
+}
+
+template <int C>
+void Client<C>::read_characteristic_config()
+{
+  state = TC_W4_CHARACTERISTIC_CONFIG;
+
+  // Find next descriptor for a configuration
+  while ( ( curr_char_idx < num_characteristics_discovered ) &&
+          ( server_characteristic_descriptor[curr_char_idx][0].uuid16 !=
+            GATT_CLIENT_CHARACTERISTICS_CONFIGURATION ) ) {
+    curr_char_idx++;
+  }
+
+  // If we found one, get its configuration
+  if ( curr_char_idx < num_characteristics_discovered ) {
+    gatt_client_read_characteristic_descriptor(
+        global_gatt_client_event_handler, connection_handle,
+        &server_characteristic_descriptor[curr_char_idx][0] );
+  }
+
+  // If none left to get, move to notifications
+  else {
+    state               = TC_W4_READY;
+    listener_registered = true;
+    gatt_client_listen_for_characteristic_value_updates(
+        &notification_listener, global_gatt_client_event_handler,
+        connection_handle, NULL );
+  }
+}
+
 // -----------------------------------------------------------------------
 // gatt_client_event_handler
 // -----------------------------------------------------------------------
 // Handle GATT Events
 
-void Client::gatt_client_event_handler( uint8_t  packet_type,
-                                        uint16_t channel, uint8_t* packet,
-                                        uint16_t size )
+template <int C>
+void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
+                                           uint16_t channel,
+                                           uint8_t* packet,
+                                           uint16_t size )
 {
+  // Don't use the packet_type, channel, or size
+  (void) packet_type;
+  (void) channel;
+  (void) size;
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Check if it's a notification
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  uint8_t type_of_packet = hci_event_packet_get_type( packet );
+  if ( type_of_packet == GATT_EVENT_NOTIFICATION ) {
+    gatt_client_notification_handler( packet );
+    return;
+  }
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Handle packet based on current state
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // First called when in TC_W4_SERVICE_RESULT from hci_event_handler
+
+  uint8_t att_status;
+
+  switch ( state ) {
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Handle result of service request
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case TC_W4_SERVICE_RESULT:
+      switch ( type_of_packet ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Information about service (store)
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_SERVICE_QUERY_RESULT:
+          gatt_event_service_query_result_get_service( packet,
+                                                       &server_service );
+          break;
+
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Finished with service result (discover characteristics)
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          // Make sure no errors
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x.\n",
+                    att_status );
+            gap_disconnect( connection_handle );
+            break;
+          }
+
+          // Clear all notifications
+          memset( notifications_enabled, -1, C );
+          characteristic_discovery();
+
+        default:
+          break;
+      }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Characteristic Discovery
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case TC_W4_CHARACTERISTIC_RESULT:
+      switch ( type_of_packet ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Characteristic that was discovered (store)
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_CHARACTERISTIC_QUERY_RESULT:
+          gatt_event_characteristic_query_result_get_characteristic(
+              packet, &server_characteristic[curr_char_idx++] );
+          break;
+
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Done with characteristics (move to descriptors)
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          num_characteristics_discovered = curr_char_idx;
+
+          curr_char_idx       = 0;
+          curr_char_descr_idx = 0;
+
+          // Make sure no errors
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x.\n",
+                    att_status );
+            gap_disconnect( connection_handle );
+            break;
+          }
+          characteristic_descriptor_discovery();
+          break;
+
+        default:
+          break;
+      }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Characteristic Descriptor Discovery
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case TC_W4_CHARACTERISTIC_DESCRIPTOR:
+      switch ( type_of_packet ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Descriptor that was discovered (store)
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_ALL_CHARACTERISTIC_DESCRIPTORS_QUERY_RESULT:
+          gatt_event_all_characteristic_descriptors_query_result_get_characteristic_descriptor(
+              packet,
+              &server_characteristic_descriptor[curr_char_idx]
+                                               [curr_char_descr_idx++]
+                                                   .client_config );
+          break;
+
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Done with descriptors
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          curr_char_idx++;
+          curr_char_descr_idx = 0;
+
+          // Discover next characteristic, if any remaining
+          if ( curr_char_idx < num_characteristics_discovered ) {
+            characteristic_descriptor_discovery();
+            break;
+          }
+
+          // Discover characteristic descriptions
+          curr_char_idx = 0;
+          characteristic_description_discovery();
+          break;
+
+        default:
+          break;
+      }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Characteristic Description Discovery
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case TC_W4_CHARACTERISTIC_DESCRIPTION:
+      switch ( type_of_packet ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Description that was discovered (store)
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_CHARACTERISTIC_DESCRIPTOR_QUERY_RESULT:
+          // Get the description
+          uint32_t description_length =
+              gatt_event_characteristic_descriptor_query_result_get_descriptor_length(
+                  packet );
+          const uint8_t* description =
+              gatt_event_characteristic_descriptor_query_result_get_descriptor(
+                  packet );
+
+          // Store description (including null-termination)
+          memcpy( server_characteristic_user_description[curr_char_idx],
+                  description, description_length );
+          server_characteristic_user_description[curr_char_idx]
+                                                [description_length] =
+                                                    '\0';
+          break;
+
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Done with description
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          curr_char_idx++;
+
+          // Read remaining descriptions, if any
+          if ( curr_char_idx < num_characteristics_discovered ) {
+            characteristic_description_discovery();
+            break;
+          }
+
+          // Discover characteristic values
+          curr_char_idx       = 0;
+          curr_char_descr_idx = 0;
+          read_characteristic_value();
+          break;
+
+        default:
+          break;
+      }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Characteristic Value Discovery
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case TC_W4_CHARACTERISTIC_VALUE:
+      switch ( type_of_packet ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Value that was discovered (store)
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_CHARACTERISTIC_VALUE_QUERY_RESULT:
+          // Get the value
+          uint32_t value_length =
+              gatt_event_characteristic_value_query_result_get_value_length(
+                  packet );
+          const uint8_t* value =
+              gatt_event_characteristic_value_query_result_get_value(
+                  packet );
+
+          // Store value (including null-termination)
+          memcpy( server_characteristic_values[curr_char_idx], value,
+                  value_length );
+          server_characteristic_values[curr_char_idx][value_length] =
+              '\0';
+          break;
+
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Done with value
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          curr_char_idx++;
+
+          // Read remaining values, if any
+          if ( curr_char_idx < num_characteristics_discovered ) {
+            characteristic_description_discovery();
+            break;
+          }
+
+          // Discover characteristic configurations
+          curr_char_idx       = 0;
+          curr_char_descr_idx = 0;
+          read_characteristic_config();
+          break;
+
+        default:
+          break;
+      }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Characteristic Configuration Discovery
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case TC_W4_CHARACTERISTIC_CONFIG:
+      switch ( type_of_packet ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Configuration that was discovered (store)
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_CHARACTERISTIC_DESCRIPTOR_QUERY_RESULT:
+          // Get the configuration
+          uint32_t config_length =
+              gatt_event_characteristic_value_query_result_get_value_length(
+                  packet );
+          const uint8_t* config =
+              gatt_event_characteristic_value_query_result_get_value(
+                  packet );
+
+          // Store the configuration
+          server_characteristic_configurations[curr_char_idx] =
+              little_endian_read_16( config, 0 );
+
+          // Check whether notifications are enabled
+          notifications_enabled[curr_char_idx] = ( (
+              char) server_characteristic_configurations[curr_char_idx] );
+
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Done with configuration
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          curr_char_idx++;
+          read_characteristic_config();
+
+        default:
+          break;
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+// -----------------------------------------------------------------------
+// gatt_client_event_handler
+// -----------------------------------------------------------------------
+// Handle asynchronous notifications
+
+template <int C>
+void Client<C>::gatt_client_notification_handler( uint8_t* packet )
+{
+  // Get payload length, value handle, and value
+  uint32_t value_length =
+      gatt_event_notification_get_value_length( packet );
+  uint16_t value_handle =
+      gatt_event_notification_get_value_handle( packet );
+  const uint8_t* value = gatt_event_notification_get_value( packet );
+
+  // Find the characteristic that the value is for
+  int value_char_idx = -1;
+  for ( int i = 0; i < num_characteristics_discovered; i++ ) {
+    if ( value_handle == server_characteristic[i].value_handle ) {
+      value_char_idx = i;
+    }
+  }
+
+  // Update the characteristic value if found (including null terminator)
+  if ( value_char_idx >= 0 ) {
+    memcpy( server_characteristic_values[value_char_idx], value,
+            value_length );
+    server_characteristic_values[value_char_idx][value_length] = 0;
+  }
 }
 
 // -----------------------------------------------------------------------
@@ -134,8 +578,9 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
 // -----------------------------------------------------------------------
 // Handle event from CWY43439
 
-void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
-                                uint8_t* packet, uint16_t size )
+template <int C>
+void Client<C>::hci_event_handler( uint8_t packet_type, uint16_t channel,
+                                   uint8_t* packet, uint16_t size )
 {
   // We don't use the size and channel
   (void) size;
