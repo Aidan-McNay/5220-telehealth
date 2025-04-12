@@ -1,10 +1,9 @@
 # ========================================================================
 # CMakeLists.txt
 # ========================================================================
-# Files for the BLE functions for the Pico W
+# Top-level application files
 
-set(SRC_FILES
-  ble/ble.cpp
-  ble/client.cpp
-  ble/omron.cpp
+set(APP_FILES
+  app/blink.c
+  app/omron_test.cpp
 PARENT_SCOPE)

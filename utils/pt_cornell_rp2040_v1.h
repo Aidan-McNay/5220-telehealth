@@ -52,6 +52,9 @@
  *
  */
 
+#ifndef UTILS_PT_CORNELL_RP2040_V1_H
+#define UTILS_PT_CORNELL_RP2040_V1_H
+
 // Include standard libraries
 #include <math.h>
 #include <stdio.h>
@@ -1029,3 +1032,5 @@
  // ======
  // END
  // ======
+
+#endif // UTILS_PT_CORNELL_RP2040_V1_H

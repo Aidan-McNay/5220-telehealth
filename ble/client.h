@@ -10,7 +10,6 @@
 #define BLE_CLIENT_H
 
 #include "btstack.h"
-#include "utils/pt_cornell_rp2040_v1.h"
 #include <cstdint>
 
 // Maximum length of a BLE Characteristic Description
@@ -18,6 +17,9 @@
 
 // Maximum length of a BLE Characteristic Value
 #define GATT_MAX_VALUE_LENGTH 100
+
+// Maximum number of characteristics - adjust if necessary
+#define MAX_CHARACTERISTICS 25
 
 // -----------------------------------------------------------------------
 // GATT State Machine States
@@ -67,32 +69,33 @@ class BaseClient {
                                   uint8_t* packet, uint16_t size ) = 0;
 };
 
-template <int MAX_CHARACTERISTICS>
 class Client : public BaseClient {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // BLE Definitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Child classes will need to override these
 
-  virtual uint16_t get_service()      = 0;
-  virtual uint8_t* get_service_name() = 0;  // 16 entries for 128b UUID
-
-  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  // Public attributes
-  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-  // Samephore for waiting for characteristics to be discovered
-  struct pt_sem characteristics_discovered;
+  virtual uint16_t get_service() = 0;
+  virtual const uint8_t*
+  get_service_name() = 0;  // 16 entries for 128b UUID
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public accessor functions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ public:
   Client();
   ~Client();
 
   // Connecting to/from servers
   void connect_to_server();
   void disconnect_from_server();
+
+  // Check whether we're done discovery
+  bool ready();
+
+  // Print all characteristics
+  //  - Does nothing if discovery isn't completed
+  void print();
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Protected attributes

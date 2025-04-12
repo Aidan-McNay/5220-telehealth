@@ -7,6 +7,7 @@
 #include "pico/cyw43_arch.h"
 #include "utils/debug.h"
 #include <functional>
+#include <stdio.h>
 
 // -----------------------------------------------------------------------
 // Global state for handling callbacks
@@ -36,8 +37,7 @@ void global_hci_event_handler( uint8_t packet_type, uint16_t channel,
 // RAII Management (Constructor, Destructor)
 // -----------------------------------------------------------------------
 
-template <int C>
-Client<C>::Client()
+Client::Client()
     : state( TC_OFF ),
       listener_registered( false ),
       curr_char_idx( 0 ),
@@ -45,7 +45,6 @@ Client<C>::Client()
       num_characteristics_discovered( 0 )
 {
   curr_client = this;
-  PT_SEM_SAFE_INIT( &characteristics_discovered, 0 );
 
   // Initialize CYW43 Architecture (should check if non-zero, but avoid in
   // constructor)
@@ -68,8 +67,7 @@ Client<C>::Client()
   hci_add_event_handler( &hci_event_callback_registration );
 }
 
-template <int C>
-Client<C>::~Client()
+Client::~Client()
 {
   curr_client = nullptr;
 }
@@ -79,16 +77,26 @@ Client<C>::~Client()
 // -----------------------------------------------------------------------
 // Just change the power on the interface
 
-template <int C>
-void Client<C>::connect_to_server()
+void Client::connect_to_server()
 {
   hci_power_control( HCI_POWER_ON );
 }
 
-template <int C>
-void Client<C>::disconnect_from_server()
+void Client::disconnect_from_server()
 {
+  connection_handle = HCI_CON_HANDLE_INVALID;
+  if ( listener_registered ) {
+    listener_registered = false;
+    gatt_client_stop_listening_for_characteristic_value_updates(
+        &notification_listener );
+  }
+  state = TC_OFF;
   hci_power_control( HCI_POWER_SLEEP );
+}
+
+bool Client::ready()
+{
+  return state == TC_W4_READY;
 }
 
 // -----------------------------------------------------------------------
@@ -96,8 +104,7 @@ void Client<C>::disconnect_from_server()
 // -----------------------------------------------------------------------
 // Check whether an advertisement report contains our service
 
-template <int C>
-bool Client<C>::correct_service( uint8_t* advertisement_report )
+bool Client::correct_service( uint8_t* advertisement_report )
 {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Get advertisement data
@@ -138,8 +145,7 @@ bool Client<C>::correct_service( uint8_t* advertisement_report )
 // State transition helper functions
 // -----------------------------------------------------------------------
 
-template <int C>
-void Client<C>::off()
+void Client::off()
 {
   state = TC_OFF;
 }
@@ -149,8 +155,7 @@ void Client<C>::off()
 #define GAP_SCAN_INTERVAL 0x0030  // 0x30 * 6.25ms = 300ms
 #define GAP_SCAN_WINDOW 0x0030
 
-template <int C>
-void Client<C>::start()
+void Client::start()
 {
   state = TC_W4_SCAN_RESULT;
 
@@ -160,15 +165,13 @@ void Client<C>::start()
   gap_start_scan();
 }
 
-template <int C>
-void Client<C>::connect()
+void Client::connect()
 {
   state = TC_W4_CONNECT;
   gap_connect( server_addr, server_addr_type );
 }
 
-template <int C>
-void Client<C>::service_discovery()
+void Client::service_discovery()
 {
   state = TC_W4_SERVICE_RESULT;
   gatt_client_discover_primary_services_by_uuid128(
@@ -176,8 +179,7 @@ void Client<C>::service_discovery()
       get_service_name() );
 }
 
-template <int C>
-void Client<C>::characteristic_discovery()
+void Client::characteristic_discovery()
 {
   state = TC_W4_CHARACTERISTIC_RESULT;
   gatt_client_discover_characteristics_for_service(
@@ -185,8 +187,7 @@ void Client<C>::characteristic_discovery()
       &server_service );
 }
 
-template <int C>
-void Client<C>::characteristic_descriptor_discovery()
+void Client::characteristic_descriptor_discovery()
 {
   state = TC_W4_CHARACTERISTIC_DESCRIPTOR;
   gatt_client_discover_characteristic_descriptors(
@@ -200,8 +201,7 @@ bool is_description( gatt_client_characteristic_descriptor_t descriptor )
   return descriptor.uuid16 == GATT_CHARACTERISTIC_USER_DESCRIPTION;
 }
 
-template <int C>
-void Client<C>::characteristic_description_discovery()
+void Client::characteristic_description_discovery()
 {
   state = TC_W4_CHARACTERISTIC_DESCRIPTION;
 
@@ -221,8 +221,7 @@ void Client<C>::characteristic_description_discovery()
   }
 }
 
-template <int C>
-void Client<C>::read_characteristic_value()
+void Client::read_characteristic_value()
 {
   state = TC_W4_CHARACTERISTIC_VALUE;
   gatt_client_read_value_of_characteristic(
@@ -230,8 +229,7 @@ void Client<C>::read_characteristic_value()
       &server_characteristic[curr_char_idx] );
 }
 
-template <int C>
-void Client<C>::read_characteristic_config()
+void Client::read_characteristic_config()
 {
   state = TC_W4_CHARACTERISTIC_CONFIG;
 
@@ -264,11 +262,9 @@ void Client<C>::read_characteristic_config()
 // -----------------------------------------------------------------------
 // Handle GATT Events
 
-template <int C>
-void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
-                                           uint16_t channel,
-                                           uint8_t* packet,
-                                           uint16_t size )
+void Client::gatt_client_event_handler( uint8_t  packet_type,
+                                        uint16_t channel, uint8_t* packet,
+                                        uint16_t size )
 {
   // Don't use the packet_type, channel, or size
   (void) packet_type;
@@ -290,7 +286,13 @@ void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // First called when in TC_W4_SERVICE_RESULT from hci_event_handler
 
-  uint8_t att_status;
+  uint8_t        att_status;
+  uint32_t       description_length;
+  const uint8_t* description;
+  uint32_t       value_length;
+  const uint8_t* value;
+  uint32_t       config_length;
+  const uint8_t* config;
 
   switch ( state ) {
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -320,7 +322,7 @@ void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
           }
 
           // Clear all notifications
-          memset( notifications_enabled, -1, C );
+          memset( notifications_enabled, -1, MAX_CHARACTERISTICS );
           characteristic_discovery();
 
         default:
@@ -378,8 +380,7 @@ void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
           gatt_event_all_characteristic_descriptors_query_result_get_characteristic_descriptor(
               packet,
               &server_characteristic_descriptor[curr_char_idx]
-                                               [curr_char_descr_idx++]
-                                                   .client_config );
+                                               [curr_char_descr_idx++] );
           break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -415,10 +416,10 @@ void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_CHARACTERISTIC_DESCRIPTOR_QUERY_RESULT:
           // Get the description
-          uint32_t description_length =
+          description_length =
               gatt_event_characteristic_descriptor_query_result_get_descriptor_length(
                   packet );
-          const uint8_t* description =
+          description =
               gatt_event_characteristic_descriptor_query_result_get_descriptor(
                   packet );
 
@@ -463,12 +464,11 @@ void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_CHARACTERISTIC_VALUE_QUERY_RESULT:
           // Get the value
-          uint32_t value_length =
+          value_length =
               gatt_event_characteristic_value_query_result_get_value_length(
                   packet );
-          const uint8_t* value =
-              gatt_event_characteristic_value_query_result_get_value(
-                  packet );
+          value = gatt_event_characteristic_value_query_result_get_value(
+              packet );
 
           // Store value (including null-termination)
           memcpy( server_characteristic_values[curr_char_idx], value,
@@ -510,12 +510,11 @@ void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_CHARACTERISTIC_DESCRIPTOR_QUERY_RESULT:
           // Get the configuration
-          uint32_t config_length =
+          config_length =
               gatt_event_characteristic_value_query_result_get_value_length(
                   packet );
-          const uint8_t* config =
-              gatt_event_characteristic_value_query_result_get_value(
-                  packet );
+          config = gatt_event_characteristic_value_query_result_get_value(
+              packet );
 
           // Store the configuration
           server_characteristic_configurations[curr_char_idx] =
@@ -547,8 +546,7 @@ void Client<C>::gatt_client_event_handler( uint8_t  packet_type,
 // -----------------------------------------------------------------------
 // Handle asynchronous notifications
 
-template <int C>
-void Client<C>::gatt_client_notification_handler( uint8_t* packet )
+void Client::gatt_client_notification_handler( uint8_t* packet )
 {
   // Get payload length, value handle, and value
   uint32_t value_length =
@@ -578,9 +576,8 @@ void Client<C>::gatt_client_notification_handler( uint8_t* packet )
 // -----------------------------------------------------------------------
 // Handle event from CWY43439
 
-template <int C>
-void Client<C>::hci_event_handler( uint8_t packet_type, uint16_t channel,
-                                   uint8_t* packet, uint16_t size )
+void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
+                                uint8_t* packet, uint16_t size )
 {
   // We don't use the size and channel
   (void) size;
@@ -675,5 +672,53 @@ void Client<C>::hci_event_handler( uint8_t packet_type, uint16_t channel,
 
     default:
       break;
+  }
+}
+
+// -----------------------------------------------------------------------
+// Printing
+// -----------------------------------------------------------------------
+
+// Plaintext for various access permisions
+char  broadcast[]           = "Broadcast";
+char  read[]                = "Read";
+char  write_no_resp[]       = "Write without response";
+char  write[]               = "Write";
+char  notify[]              = "Notify";
+char  indicate[]            = "Indicate";
+char  authen[]              = "Signed write";
+char  extended[]            = "Extended";
+char* access_permissions[8] = { broadcast, read,    write_no_resp,
+                                write,     notify,  indicate,
+                                authen,    extended };
+
+void print_permissions( uint16_t permissions )
+{
+  bool is_first = true;
+  for ( int i = 0; i < 8; i++ ) {
+    if ( ( 1u << i ) & permissions ) {
+      if ( !is_first ) {
+        printf( " - " );
+        is_first = false;
+      }
+      printf( "%s ", access_permissions[i] );
+    }
+  }
+}
+
+void Client::print()
+{
+  if ( state != TC_W4_READY )
+    return;
+  for ( int idx = 0; idx < num_characteristics_discovered; idx++ ) {
+    printf( "%d:\n", idx );
+    printf( "\t - Description: %s\n",
+            server_characteristic_user_description[idx] );
+
+    printf( "\t - Permissions: " );
+    print_permissions( server_characteristic[idx].properties );
+    printf( "\n" );
+
+    printf( "\t - Value: %s", server_characteristic_values[idx] );
   }
 }

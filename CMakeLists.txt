@@ -99,6 +99,7 @@ set(SUBDIRS
 set(USER_LIBS "")
 
 foreach(SUBDIR ${SUBDIRS})
+  unset(SRC_FILES)
   add_subdirectory(${SUBDIR})
   add_library(${SUBDIR} STATIC ${SRC_FILES})
   target_link_libraries(${SUBDIR} ${PICO_LIBS})
@@ -112,16 +113,39 @@ foreach(SUBDIR ${SUBDIRS})
   set(USER_LIBS ${USER_LIBS} ${SUBDIR})
 endforeach(SUBDIR)
 
+#-------------------------------------------------------------------------
+# get_leaf
+#-------------------------------------------------------------------------
+# Gets the leaf file of a path.
+
+function(get_leaf VARNAME FILE_NAME)
+  string(REGEX REPLACE "[^/]*/" "" NAME_WITHOUT_EXT ${FILE_NAME})
+  set(${VARNAME} "${NAME_WITHOUT_EXT}" PARENT_SCOPE)
+endfunction()
+
+#------------------------------------------------------------------------
+# remove_extension
+#------------------------------------------------------------------------
+# A function to remove a file's extension
+
+function(remove_extension VARNAME FILE_NAME)
+  string(REGEX REPLACE "\\.[^.]*$" "" NAME_WITHOUT_EXT ${FILE_NAME})
+  set(${VARNAME} "${NAME_WITHOUT_EXT}" PARENT_SCOPE)
+endfunction()
+
 # ------------------------------------------------------------------------
 # Add main executable
 # ------------------------------------------------------------------------
 
-add_executable(blood_pressure
-  blink.c
-)
+add_subdirectory(app)
+foreach(APP_FILE ${APP_FILES})
+  get_leaf(APP_FILE_NAME ${APP_FILE})
+  remove_extension(APP_FILE_BIN ${APP_FILE_NAME})
+  add_executable(${APP_FILE_BIN} ${APP_FILE})
 
-# pull in common dependencies
-target_link_libraries(blood_pressure ${USER_LIBS} ${PICO_LIBS})
+  # pull in common dependencies
+  target_link_libraries(${APP_FILE_BIN} ${USER_LIBS} ${PICO_LIBS})
 
-# create map/bin/hex file etc.
-pico_add_extra_outputs(blood_pressure)
+  # create map/bin/hex file etc.
+  pico_add_extra_outputs(${APP_FILE_BIN})
+endforeach(APP_FILE)
