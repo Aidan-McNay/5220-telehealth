@@ -27,25 +27,6 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ------------------------------------------------------------------------
-# Initialise pico_sdk from installed location
-# ------------------------------------------------------------------------
-# DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code
-# Extension to work
-
-if(WIN32)
-    set(USERHOME $ENV{USERPROFILE})
-else()
-    set(USERHOME $ENV{HOME})
-endif()
-set(sdkVersion 2.1.1)
-set(toolchainVersion 14_2_Rel1)
-set(picotoolVersion 2.1.1)
-set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
-if (EXISTS ${picoVscode})
-    include(${picoVscode})
-endif()
-
 set(PICO_BOARD pico_w CACHE STRING "Board type")
 
 # ------------------------------------------------------------------------
@@ -81,6 +62,9 @@ add_compile_definitions(
 # ------------------------------------------------------------------------
 # Compile subdirectories as libraries
 # ------------------------------------------------------------------------
+
+# Uncomment to compile in debug
+add_compile_definitions(DEBUG)
 
 set(PICO_LIBS
   hardware_sync
@@ -148,4 +132,8 @@ foreach(APP_FILE ${APP_FILES})
 
   # create map/bin/hex file etc.
   pico_add_extra_outputs(${APP_FILE_BIN})
+
+  # Allow for printf over USB
+  pico_enable_stdio_usb(${APP_FILE_BIN} 1)
+  pico_enable_stdio_uart(${APP_FILE_BIN} 0)
 endforeach(APP_FILE)

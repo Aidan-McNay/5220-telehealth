@@ -100,48 +100,6 @@ bool Client::ready()
 }
 
 // -----------------------------------------------------------------------
-// correct_service
-// -----------------------------------------------------------------------
-// Check whether an advertisement report contains our service
-
-bool Client::correct_service( uint8_t* advertisement_report )
-{
-  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  // Get advertisement data
-  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  const uint8_t* adv_data =
-      gap_event_advertising_report_get_data( advertisement_report );
-  uint8_t adv_len = gap_event_advertising_report_get_data_length(
-      advertisement_report );
-
-  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  // Check advertisement data
-  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-  ad_context_t context;
-  for ( ad_iterator_init( &context, adv_len, adv_data );
-        ad_iterator_has_more( &context ); ad_iterator_next( &context ) ) {
-    // Check if the correct data type
-    uint8_t data_type = ad_iterator_get_data_type( &context );
-    if (
-        data_type ==
-        BLUETOOTH_DATA_TYPE_COMPLETE_LIST_OF_16_BIT_SERVICE_CLASS_UUIDS ) {
-      // Check the services
-      uint8_t        data_size = ad_iterator_get_data_len( &context );
-      const uint8_t* data      = ad_iterator_get_data( &context );
-      uint16_t       service   = get_service();
-      for ( int i = 0; i < data_size; i += 2 ) {
-        uint16_t type = little_endian_read_16( data, i );
-        if ( type == service )
-          return true;
-      }
-    }
-  }
-  // No correct service found
-  return false;
-}
-
-// -----------------------------------------------------------------------
 // State transition helper functions
 // -----------------------------------------------------------------------
 
@@ -160,6 +118,7 @@ void Client::start()
   state = TC_W4_SCAN_RESULT;
 
   // Start GAP scan
+  debug( "[BLE] Starting scan...\n" );
   gap_set_scan_params( GAP_SCAN_PASSIVE, GAP_SCAN_INTERVAL,
                        GAP_SCAN_WINDOW, GAP_SCAN_ALL );
   gap_start_scan();
@@ -167,20 +126,32 @@ void Client::start()
 
 void Client::connect()
 {
+  debug( "[BLE] Connecting to address %s...\n",
+         bd_addr_to_str( server_addr ) );
   state = TC_W4_CONNECT;
   gap_connect( server_addr, server_addr_type );
 }
 
 void Client::service_discovery()
 {
-  state = TC_W4_SERVICE_RESULT;
-  gatt_client_discover_primary_services_by_uuid128(
-      global_gatt_client_event_handler, connection_handle,
-      get_service_name() );
+  debug( "[BLE] Entering service discovery...\n" );
+  state                  = TC_W4_SERVICE_RESULT;
+  service_uuid_t service = get_service_name();
+  if ( std::holds_alternative<uint16_t>( service ) ) {
+    gatt_client_discover_primary_services_by_uuid16(
+        global_gatt_client_event_handler, connection_handle,
+        std::get<uint16_t>( service ) );
+  }
+  else {
+    gatt_client_discover_primary_services_by_uuid128(
+        global_gatt_client_event_handler, connection_handle,
+        std::get<const uint8_t*>( service ) );
+  }
 }
 
 void Client::characteristic_discovery()
 {
+  debug( "[BLE] Discovering characteristic %d...\n", curr_char_idx );
   state = TC_W4_CHARACTERISTIC_RESULT;
   gatt_client_discover_characteristics_for_service(
       global_gatt_client_event_handler, connection_handle,
@@ -189,6 +160,8 @@ void Client::characteristic_discovery()
 
 void Client::characteristic_descriptor_discovery()
 {
+  debug( "[BLE] Discovering descriptor for characteristic %d...\n",
+         curr_char_idx );
   state = TC_W4_CHARACTERISTIC_DESCRIPTOR;
   gatt_client_discover_characteristic_descriptors(
       global_gatt_client_event_handler, connection_handle,
@@ -203,6 +176,8 @@ bool is_description( gatt_client_characteristic_descriptor_t descriptor )
 
 void Client::characteristic_description_discovery()
 {
+  debug( "[BLE] Discovering description for characteristic %d...\n",
+         curr_char_idx );
   state = TC_W4_CHARACTERISTIC_DESCRIPTION;
 
   // Get the description from the correct descriptor
@@ -223,6 +198,8 @@ void Client::characteristic_description_discovery()
 
 void Client::read_characteristic_value()
 {
+  debug( "[BLE] Discovering value for characteristic %d...\n",
+         curr_char_idx );
   state = TC_W4_CHARACTERISTIC_VALUE;
   gatt_client_read_value_of_characteristic(
       global_gatt_client_event_handler, connection_handle,
@@ -242,6 +219,8 @@ void Client::read_characteristic_config()
 
   // If we found one, get its configuration
   if ( curr_char_idx < num_characteristics_discovered ) {
+    debug( "[BLE] Discovering configuration for characteristic %d...\n",
+           curr_char_idx );
     gatt_client_read_characteristic_descriptor(
         global_gatt_client_event_handler, connection_handle,
         &server_characteristic_descriptor[curr_char_idx][0] );
@@ -249,6 +228,7 @@ void Client::read_characteristic_config()
 
   // If none left to get, move to notifications
   else {
+    debug( "[BLE] All characteristics discovered!\n" );
     state               = TC_W4_READY;
     listener_registered = true;
     gatt_client_listen_for_characteristic_value_updates(
@@ -485,7 +465,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
 
           // Read remaining values, if any
           if ( curr_char_idx < num_characteristics_discovered ) {
-            characteristic_description_discovery();
+            read_characteristic_value();
             break;
           }
 
@@ -591,7 +571,8 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
   // Handle different event types
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  uint8_t event_type = hci_event_packet_get_type( packet );
+  uint8_t   event_type = hci_event_packet_get_type( packet );
+  bd_addr_t local_addr;
 
   switch ( event_type ) {
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -601,6 +582,9 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
       // Start listening if the chip is working
       if ( btstack_event_state_get_state( packet ) ==
            HCI_STATE_WORKING ) {
+        gap_local_bd_addr( local_addr );
+        debug( "[BLE] Up and running on %s...\n",
+               bd_addr_to_str( local_addr ) );
         start();
       }
       else {
@@ -657,6 +641,8 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     case HCI_EVENT_DISCONNECTION_COMPLETE:
       // Unregister listener, if necessary
+      debug( "[BLE] Disconnecting from %s...\n",
+             bd_addr_to_str( server_addr ) );
       connection_handle = HCI_CON_HANDLE_INVALID;
       if ( listener_registered ) {
         listener_registered = false;
@@ -712,13 +698,14 @@ void Client::print()
     return;
   for ( int idx = 0; idx < num_characteristics_discovered; idx++ ) {
     printf( "%d:\n", idx );
-    printf( "\t - Description: %s\n",
+    printf( " - Description: %s\n",
             server_characteristic_user_description[idx] );
 
-    printf( "\t - Permissions: " );
+    printf( " - Permissions: " );
     print_permissions( server_characteristic[idx].properties );
     printf( "\n" );
 
-    printf( "\t - Value: %s", server_characteristic_values[idx] );
+    printf( " - Value: %s", server_characteristic_values[idx] );
+    printf( "\n" );
   }
 }

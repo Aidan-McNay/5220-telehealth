@@ -5,6 +5,7 @@
 
 #include "ble/omron.h"
 #include "utils/pt_cornell_rp2040_v1.h"
+#include <stdio.h>
 
 Omron blood_pressure;
 
@@ -19,11 +20,13 @@ static PT_THREAD( print_characteristics( struct pt *pt ) )
 
   // Wait until discovered
   while ( !blood_pressure.ready() ) {
-    PT_YIELD_usec( 50000 );
+    PT_YIELD_usec( 500000 );
+    printf( "Waiting...\n" );
   }
 
   // Print characteristics
   blood_pressure.print();
+  PT_EXIT( pt );
   PT_END( pt );
 }
 
@@ -34,6 +37,10 @@ static PT_THREAD( print_characteristics( struct pt *pt ) )
 int main()
 {
   stdio_init_all();
+  printf( "OMRON Communication Test\n" );
+
+  // Delay a bit to set up printf connection
+  sleep_ms( 10000 );
   blood_pressure.connect_to_server();
 
   pt_add_thread( print_characteristics );

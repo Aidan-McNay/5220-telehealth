@@ -11,6 +11,7 @@
 
 #include "btstack.h"
 #include <cstdint>
+#include <variant>
 
 // Maximum length of a BLE Characteristic Description
 #define GATT_MAX_DESCRIPTION_LENGTH 50
@@ -58,15 +59,16 @@ typedef gatt_client_characteristic_descriptor_t
 // Client
 // -----------------------------------------------------------------------
 
+typedef std::variant<uint16_t, const uint8_t*> service_uuid_t;
+
 class Client {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // BLE Definitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Child classes will need to override these
 
-  virtual uint16_t get_service() = 0;
-  virtual const uint8_t*
-  get_service_name() = 0;  // 16 entries for 128b UUID
+  // UUID of service to connect to
+  virtual service_uuid_t get_service_name() = 0;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public accessor functions
@@ -128,7 +130,8 @@ class Client {
   // Protected functions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  protected:
-  bool correct_service( uint8_t* advertisement_report );
+  // Override based on custom device to determine correct service
+  virtual bool correct_service( uint8_t* advertisement_report ) = 0;
 
   // Helper functions for state transitions
   void off();
