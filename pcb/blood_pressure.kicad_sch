@@ -5164,7 +5164,7 @@
 				)
 			)
 		)
-		(property "Value" "330"
+		(property "Value" "60"
 			(at 176.53 73.66 90)
 			(effects
 				(font
@@ -5984,7 +5984,7 @@
 				)
 			)
 		)
-		(property "Value" "330"
+		(property "Value" "60"
 			(at 176.53 85.09 90)
 			(effects
 				(font
@@ -6636,7 +6636,7 @@
 				)
 			)
 		)
-		(property "Value" "330"
+		(property "Value" "60"
 			(at 176.53 60.96 90)
 			(effects
 				(font
