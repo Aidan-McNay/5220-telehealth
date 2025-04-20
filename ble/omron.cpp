@@ -4,6 +4,7 @@
 // Definitions of our OMRON BLE class
 
 #include "ble/omron.h"
+#include "pico/stdlib.h"
 #include "utils/debug.h"
 
 // -----------------------------------------------------------------------
@@ -13,6 +14,10 @@
 const uint8_t parent_service_name[16] = {
     0xEC, 0xBE, 0x39, 0x80, 0xC9, 0xA2, 0x11, 0xE1,
     0xB1, 0xBD, 0x00, 0x02, 0xA5, 0xD5, 0xC5, 0x1B };
+
+const uint8_t blood_pressure_measurement[16] = {
+    0x00, 0x00, 0x2A, 0x35, 0x00, 0x00, 0x10, 0x00,
+    0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB };
 
 // -----------------------------------------------------------------------
 // correct_service
@@ -80,16 +85,30 @@ bool Omron::correct_service( uint8_t* advertisement_report )
 
 void Omron::after_discovery()
 {
-  debug( "[Omron] After discovery...\n" );
-  enable_notif();
+  // enable_indicate();
 }
 
 // -----------------------------------------------------------------------
 // Helper state machine functions
 // -----------------------------------------------------------------------
 
-void Omron::enable_notif()
+void Omron::enable_indicate()
 {
+  omron_state = OM_ENABLE_INDICATE;
+  debug( "[Omron] Enabling measurement indications...\n" );
+  // int status = enable_indications( blood_pressure_measurement );
+  // if ( status == 0 ) {
+  //   debug( "[Omron] Enabled measurement indications\n" );
+  // }
+  // else {
+  //   debug( "[Omron] Error enabling measurement indications...\n" );
+  // }
+}
+
+void Omron::wait_indicate()
+{
+  omron_state = OM_WAIT_INDICATE;
+  debug( "[Omron] Waiting for indication...\n" );
 }
 
 // -----------------------------------------------------------------------
@@ -99,4 +118,41 @@ void Omron::enable_notif()
 bool Omron::omron_ready()
 {
   return omron_state == OM_READY;
+}
+
+// -----------------------------------------------------------------------
+// child_gatt_event_handler
+// -----------------------------------------------------------------------
+// Handle events from Omron activities
+
+void Omron::child_gatt_event_handler( uint8_t  packet_type,
+                                      uint8_t* packet )
+{
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Handle packet based on current state
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  switch ( omron_state ) {
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Handle indication enable response
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case OM_ENABLE_INDICATE:
+      switch ( packet_type ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Indication response
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          if ( gatt_event_query_complete_get_att_status( packet ) !=
+               ATT_ERROR_SUCCESS ) {
+            debug( "[Omron] Error enabling indications...\n" );
+            break;
+          }
+          wait_indicate();
+          break;
+
+        default:
+          break;
+      }
+    default:
+      break;
+  }
 }

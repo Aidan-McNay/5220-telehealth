@@ -23,7 +23,7 @@
 #define MAX_SERVICES 7
 
 // Maximum number of characteristics - adjust if necessary
-#define MAX_CHARACTERISTICS 25
+#define MAX_CHARACTERISTICS 35
 
 // -----------------------------------------------------------------------
 // GATT State Machine States
@@ -76,6 +76,10 @@ class Client {
   // Override to call once all setup is done
   virtual void after_discovery() = 0;
 
+  // Handle GATT events after discovery
+  virtual void child_gatt_event_handler( uint8_t  packet_type,
+                                         uint8_t* packet ) = 0;
+
   // Override to handle notifications/indications
   virtual void notification_handler( uint16_t       value_handle,
                                      const uint8_t* value,
@@ -83,6 +87,14 @@ class Client {
   virtual void indication_handler( uint16_t       value_handle,
                                    const uint8_t* value,
                                    uint32_t       value_length );
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Helper functions for children
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ protected:
+  // Return 0 on success
+  int enable_notifications( service_uuid_t uuid );
+  int enable_indications( service_uuid_t uuid );
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public accessor functions
@@ -135,6 +147,7 @@ class Client {
                                             [GATT_MAX_DESCRIPTION_LENGTH];
   char server_characteristic_values[MAX_CHARACTERISTICS]
                                    [GATT_MAX_VALUE_LENGTH];
+  uint32_t server_characteristic_value_lengths[MAX_CHARACTERISTICS];
   uint16_t server_characteristic_configurations[MAX_CHARACTERISTICS];
   int      num_characteristics_discovered[MAX_SERVICES];
   int      total_characteristics_discovered;

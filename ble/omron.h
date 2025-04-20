@@ -10,7 +10,8 @@
 
 enum omron_state_t {
   OM_IDLE = 0,
-  OM_ENABLE_NOTIF,
+  OM_ENABLE_INDICATE,
+  OM_WAIT_INDICATE,
   OM_READY,
 };
 
@@ -19,11 +20,14 @@ class Omron : public Client {
   // BLE Definitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   void after_discovery() override;
+  void child_gatt_event_handler( uint8_t  packet_type,
+                                 uint8_t* packet ) override;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Helper functions for state machine transitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  void enable_notif();
+  void enable_indicate();
+  void wait_indicate();
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Helper public functions
