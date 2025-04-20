@@ -69,9 +69,20 @@ class Client {
   // BLE Definitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Child classes will need to override these
+ protected:
+  // Override based on custom device to determine correct service
+  virtual bool correct_service( uint8_t* advertisement_report ) = 0;
 
-  // UUID of service to connect to
-  virtual service_uuid_t get_service_name() = 0;
+  // Override to call once all setup is done
+  virtual void after_discovery() = 0;
+
+  // Override to handle notifications/indications
+  virtual void notification_handler( uint16_t       value_handle,
+                                     const uint8_t* value,
+                                     uint32_t       value_length );
+  virtual void indication_handler( uint16_t       value_handle,
+                                   const uint8_t* value,
+                                   uint32_t       value_length );
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public accessor functions
@@ -138,9 +149,6 @@ class Client {
   // Protected functions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  protected:
-  // Override based on custom device to determine correct service
-  virtual bool correct_service( uint8_t* advertisement_report ) = 0;
-
   // Helper functions for state transitions
   void reset();
   void off();
@@ -160,6 +168,7 @@ class Client {
   void gatt_client_event_handler( uint8_t packet_type, uint16_t channel,
                                   uint8_t* packet, uint16_t size );
   void gatt_client_notification_handler( uint8_t* packet );
+  void gatt_client_indication_handler( uint8_t* packet );
   void hci_event_handler( uint8_t packet_type, uint16_t channel,
                           uint8_t* packet, uint16_t size );
 };

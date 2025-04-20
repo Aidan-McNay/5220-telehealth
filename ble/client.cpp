@@ -252,6 +252,7 @@ void Client::read_characteristic_config()
   gatt_client_listen_for_characteristic_value_updates(
       &notification_listener, global_gatt_client_event_handler,
       connection_handle, NULL );
+  after_discovery();
 }
 
 // -----------------------------------------------------------------------
@@ -269,12 +270,16 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
   (void) size;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  // Check if it's a notification
+  // Check if it's a notification or indication
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
   uint8_t type_of_packet = hci_event_packet_get_type( packet );
   if ( type_of_packet == GATT_EVENT_NOTIFICATION ) {
     gatt_client_notification_handler( packet );
+    return;
+  }
+  if ( type_of_packet == GATT_EVENT_INDICATION ) {
+    gatt_client_indication_handler( packet );
     return;
   }
 
@@ -559,7 +564,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
 }
 
 // -----------------------------------------------------------------------
-// gatt_client_event_handler
+// gatt_client_notification_handler
 // -----------------------------------------------------------------------
 // Handle asynchronous notifications
 
@@ -586,6 +591,66 @@ void Client::gatt_client_notification_handler( uint8_t* packet )
             value_length );
     server_characteristic_values[value_char_idx][value_length] = 0;
   }
+
+  // Call custom notification handler
+  notification_handler( value_handle, value, value_length );
+}
+
+// -----------------------------------------------------------------------
+// gatt_client_indication_handler
+// -----------------------------------------------------------------------
+// Handle asynchronous indications
+
+void Client::gatt_client_indication_handler( uint8_t* packet )
+{
+  // Get payload length, value handle, and value
+  uint32_t value_length =
+      gatt_event_indication_get_value_length( packet );
+  uint16_t value_handle =
+      gatt_event_indication_get_value_handle( packet );
+  const uint8_t* value = gatt_event_indication_get_value( packet );
+
+  // Find the characteristic that the value is for
+  int value_char_idx = -1;
+  for ( int i = 0; i < total_characteristics_discovered; i++ ) {
+    if ( value_handle == server_characteristic[i].value_handle ) {
+      value_char_idx = i;
+    }
+  }
+
+  // Update the characteristic value if found (including null terminator)
+  if ( value_char_idx >= 0 ) {
+    memcpy( server_characteristic_values[value_char_idx], value,
+            value_length );
+    server_characteristic_values[value_char_idx][value_length] = 0;
+  }
+
+  // Call custom notification handler
+  indication_handler( value_handle, value, value_length );
+}
+
+// -----------------------------------------------------------------------
+// Default custom handlers
+// -----------------------------------------------------------------------
+
+void Client::notification_handler( uint16_t       value_handle,
+                                   const uint8_t* value,
+                                   uint32_t       value_length )
+{
+  // Unused value + length
+  (void) value;
+  (void) value_length;
+  debug( "[BLE] Received notification for 0x%X!\n", value_handle );
+}
+
+void Client::indication_handler( uint16_t       value_handle,
+                                 const uint8_t* value,
+                                 uint32_t       value_length )
+{
+  // Unused value + length
+  (void) value;
+  (void) value_length;
+  debug( "[BLE] Received indication for 0x%X!\n", value_handle );
 }
 
 // -----------------------------------------------------------------------
