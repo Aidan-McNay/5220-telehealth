@@ -15,9 +15,25 @@ const uint8_t parent_service_name[16] = {
     0xEC, 0xBE, 0x39, 0x80, 0xC9, 0xA2, 0x11, 0xE1,
     0xB1, 0xBD, 0x00, 0x02, 0xA5, 0xD5, 0xC5, 0x1B };
 
+const uint8_t unlock_uuid[16] = { 0xB3, 0x05, 0xB6, 0x80, 0xAE, 0xE7,
+                                  0x11, 0xE1, 0xA7, 0x30, 0x00, 0x02,
+                                  0xA5, 0xD5, 0xC5, 0x1B };
+
 const uint8_t blood_pressure_measurement[16] = {
     0x00, 0x00, 0x2A, 0x35, 0x00, 0x00, 0x10, 0x00,
     0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB };
+
+// -----------------------------------------------------------------------
+// Global command data
+// -----------------------------------------------------------------------
+
+uint8_t unlock_command[17] = { 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                               0x00, 0x00, 0x00, 0x00, 0x00 };
+
+uint8_t unlock_key[17] = { 0x00, 0xDE, 0xAD, 0xBE, 0xEF, 0x12,
+                           0x34, 0x12, 0x34, 0xDE, 0xAD, 0xBE,
+                           0xEF, 0x12, 0x34, 0x12, 0x34 };
 
 // -----------------------------------------------------------------------
 // correct_service
@@ -85,30 +101,77 @@ bool Omron::correct_service( uint8_t* advertisement_report )
 
 void Omron::after_discovery()
 {
-  // enable_indicate();
+  pair_notification();
 }
 
 // -----------------------------------------------------------------------
 // Helper state machine functions
 // -----------------------------------------------------------------------
 
-void Omron::enable_indicate()
+void Omron::pair_notification()
 {
-  omron_state = OM_ENABLE_INDICATE;
-  debug( "[Omron] Enabling measurement indications...\n" );
-  // int status = enable_indications( blood_pressure_measurement );
-  // if ( status == 0 ) {
-  //   debug( "[Omron] Enabled measurement indications\n" );
-  // }
-  // else {
-  //   debug( "[Omron] Error enabling measurement indications...\n" );
-  // }
+  omron_state = OM_PAIR_NOTIFICATION;
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[Omron] ============ CLIENT NOT READY ============\n" );
+  }
+
+  debug( "[Omron] Enabling unlock notifications...\n" );
+  int status = enable_notifications( unlock_uuid );
+  if ( status != 0 ) {
+    debug( "[Omron] Error enabling unlock notifications (%d)...\n",
+           status );
+  }
 }
 
-void Omron::wait_indicate()
+void Omron::pair_unlock()
 {
-  omron_state = OM_WAIT_INDICATE;
-  debug( "[Omron] Waiting for indication...\n" );
+  omron_state = OM_PAIR_UNLOCK;
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[Omron] ============ CLIENT NOT READY ============\n" );
+  }
+
+  debug( "[Omron] Unlocking device...\n" );
+  gatt_client_write_value_of_characteristic(
+      gatt_client_event_callback, connection_handle,
+      value_handle_from_uuid( unlock_uuid ), 17, unlock_command );
+}
+
+void Omron::pair_write_key()
+{
+  omron_state = OM_PAIR_WRITE_KEY;
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[Omron] ============ CLIENT NOT READY ============\n" );
+  }
+
+  debug( "[Omron] Writing unlock key...\n" );
+  gatt_client_write_value_of_characteristic(
+      gatt_client_event_callback, connection_handle,
+      value_handle_from_uuid( unlock_uuid ), 17, unlock_key );
+}
+
+void Omron::pair_disable_notification()
+{
+  omron_state = OM_PAIR_DISABLE_NOTIFICATION;
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[Omron] ============ CLIENT NOT READY ============\n" );
+  }
+
+  debug( "[Omron] Disabling unlock notifications...\n" );
+  int status = disable_notifications_indications( unlock_uuid );
+  if ( status != 0 ) {
+    debug( "[Omron] Error disabling unlock notifications (%d)...\n",
+           status );
+  }
+}
+
+void Omron::blood_pressure_ready()
+{
+  omron_state = OM_READY;
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[Omron] ============ CLIENT NOT READY ============\n" );
+  }
+
+  debug( "[Omron] Pairing key written!\n" );
 }
 
 // -----------------------------------------------------------------------
@@ -133,9 +196,9 @@ void Omron::child_gatt_event_handler( uint8_t  packet_type,
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   switch ( omron_state ) {
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    // Handle indication enable response
+    // Handle unlock notification enable response
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    case OM_ENABLE_INDICATE:
+    case OM_PAIR_NOTIFICATION:
       switch ( packet_type ) {
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         // Indication response
@@ -143,15 +206,123 @@ void Omron::child_gatt_event_handler( uint8_t  packet_type,
         case GATT_EVENT_QUERY_COMPLETE:
           if ( gatt_event_query_complete_get_att_status( packet ) !=
                ATT_ERROR_SUCCESS ) {
-            debug( "[Omron] Error enabling indications...\n" );
+            debug(
+                "[Omron] Error enabling unlock notifications (0x%X)...\n",
+                gatt_event_query_complete_get_att_status( packet ) );
+            att_dump_attributes();
             break;
           }
-          wait_indicate();
+          pair_unlock();
           break;
 
         default:
           break;
       }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Unlock command (do nothing, advance state on notification)
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case OM_PAIR_UNLOCK:
+      debug( "[Omron] Received unlock command acknowledgement...\n" );
+      if ( gatt_event_query_complete_get_att_status( packet ) !=
+           ATT_ERROR_SUCCESS ) {
+        debug( "[Omron] Error writing unlock command (0x%X)...\n",
+               gatt_event_query_complete_get_att_status( packet ) );
+        att_dump_attributes();
+        break;
+      }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Unlock key (do nothing, advance state on notification)
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case OM_PAIR_WRITE_KEY:
+      debug( "[Omron] Received unlock key acknowledgement..." );
+      if ( gatt_event_query_complete_get_att_status( packet ) !=
+           ATT_ERROR_SUCCESS ) {
+        debug( "[Omron] Error writing unlock key (0x%X)...\n",
+               gatt_event_query_complete_get_att_status( packet ) );
+        att_dump_attributes();
+        break;
+      }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Disable unlock notifications
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case OM_PAIR_DISABLE_NOTIFICATION:
+      if ( gatt_event_query_complete_get_att_status( packet ) !=
+           ATT_ERROR_SUCCESS ) {
+        debug( "[Omron] Error disabling unlock notifications (0x%X)...\n",
+               gatt_event_query_complete_get_att_status( packet ) );
+        att_dump_attributes();
+        break;
+      }
+      blood_pressure_ready();
+      break;
+
+    default:
+      break;
+  }
+}
+
+// -----------------------------------------------------------------------
+// notification_handler
+// -----------------------------------------------------------------------
+
+void Omron::notification_handler( uint16_t       value_handle,
+                                  const uint8_t* value,
+                                  uint32_t       value_length )
+{
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Handle by current state
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  switch ( omron_state ) {
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Unlock command
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case OM_PAIR_UNLOCK:
+      if ( value_handle_from_uuid( unlock_uuid ) != value_handle ) {
+        debug( "[Omron] Wrong value handle...\n" );
+        break;
+      }
+      if ( ( value[0] != 0x82 ) || ( value[1] != 0x00 ) ) {
+        debug(
+            "[Omron] Couldn't enter programming mode (ensure pairing mode is active): 0x" );
+        for ( int i = 0; i < value_length; i++ ) {
+          debug( "%X", value[i] );
+        }
+        debug( "...\n" );
+        break;
+      }
+
+      // Received good command - advance state
+      pair_write_key();
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Unlock key
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case OM_PAIR_WRITE_KEY:
+      if ( value_handle_from_uuid( unlock_uuid ) != value_handle ) {
+        debug( "[Omron] Wrong value handle...\n" );
+        break;
+      }
+      if ( ( value[0] != 0x80 ) || ( value[1] != 0x00 ) ) {
+        debug( "[Omron] Failed to program new key: 0x" );
+        for ( int i = 0; i < value_length; i++ ) {
+          debug( "%X", value[i] );
+        }
+        debug( "...\n" );
+        break;
+      }
+
+      // Received good command - advance state
+      pair_disable_notification();
+      break;
+
     default:
       break;
   }

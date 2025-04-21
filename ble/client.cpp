@@ -46,7 +46,10 @@ void Client::reset()
   total_characteristics_discovered = 0;
 }
 
-Client::Client() : state( TC_OFF )
+Client::Client()
+    : state( TC_OFF ),
+      hci_event_callback( global_hci_event_handler ),
+      gatt_client_event_callback( global_gatt_client_event_handler )
 {
   curr_client = this;
   reset();
@@ -148,7 +151,7 @@ void Client::service_discovery()
     debug( "[BLE] ============ CLIENT NOT READY ============\n" );
   }
   state = TC_W4_SERVICE_RESULT;
-  gatt_client_discover_primary_services( global_gatt_client_event_handler,
+  gatt_client_discover_primary_services( gatt_client_event_callback,
                                          connection_handle );
 }
 
@@ -162,7 +165,7 @@ void Client::characteristic_discovery()
   state         = TC_W4_CHARACTERISTIC_RESULT;
   curr_char_idx = 0;
   gatt_client_discover_characteristics_for_service(
-      global_gatt_client_event_handler, connection_handle,
+      gatt_client_event_callback, connection_handle,
       &server_service[curr_service_idx] );
 }
 
@@ -175,7 +178,7 @@ void Client::characteristic_descriptor_discovery()
   }
   state = TC_W4_CHARACTERISTIC_DESCRIPTOR;
   gatt_client_discover_characteristic_descriptors(
-      global_gatt_client_event_handler, connection_handle,
+      gatt_client_event_callback, connection_handle,
       &server_characteristic[curr_char_idx + curr_total_char_idx] );
 }
 
@@ -200,14 +203,14 @@ void Client::characteristic_description_discovery()
                                             curr_total_char_idx][0] ) ) {
     // 0 has the description
     gatt_client_read_characteristic_descriptor(
-        global_gatt_client_event_handler, connection_handle,
+        gatt_client_event_callback, connection_handle,
         &server_characteristic_descriptor[curr_char_idx +
                                           curr_total_char_idx][0] );
   }
   else {
     // 1 has the description
     gatt_client_read_characteristic_descriptor(
-        global_gatt_client_event_handler, connection_handle,
+        gatt_client_event_callback, connection_handle,
         &server_characteristic_descriptor[curr_char_idx +
                                           curr_total_char_idx][1] );
   }
@@ -222,7 +225,7 @@ void Client::read_characteristic_value()
   }
   state = TC_W4_CHARACTERISTIC_VALUE;
   gatt_client_read_value_of_characteristic(
-      global_gatt_client_event_handler, connection_handle,
+      gatt_client_event_callback, connection_handle,
       &server_characteristic[curr_char_idx + curr_total_char_idx] );
 }
 
@@ -248,7 +251,7 @@ void Client::read_characteristic_config()
     debug( "[BLE] Discovering configuration for characteristic %d...\n",
            curr_char_idx + curr_total_char_idx );
     gatt_client_read_characteristic_descriptor(
-        global_gatt_client_event_handler, connection_handle,
+        gatt_client_event_callback, connection_handle,
         &server_characteristic_descriptor[curr_char_idx +
                                           curr_total_char_idx][0] );
     return;
@@ -267,7 +270,7 @@ void Client::read_characteristic_config()
   state               = TC_W4_READY;
   listener_registered = true;
   gatt_client_listen_for_characteristic_value_updates(
-      &notification_listener, global_gatt_client_event_handler,
+      &notification_listener, gatt_client_event_callback,
       connection_handle, NULL );
   after_discovery();
 }
@@ -734,12 +737,22 @@ int Client::enable_notifications( service_uuid_t uuid )
       }
 
       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      // Check if they're already enabled
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      if ( ( server_characteristic_configurations[idx] &
+             GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION ) >
+           0 ) {
+        debug( "[BLE] Notifications already enabled...\n" );
+        return 2000;
+      }
+
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       // Enable notifications
       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
       uint8_t status =
           gatt_client_write_client_characteristic_configuration(
-              global_gatt_client_event_handler, connection_handle,
+              gatt_client_event_callback, connection_handle,
               &server_characteristic[idx],
               GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION );
       return status;
@@ -786,7 +799,7 @@ int Client::enable_indications( service_uuid_t uuid )
 
       uint8_t status =
           gatt_client_write_client_characteristic_configuration(
-              global_gatt_client_event_handler, connection_handle,
+              gatt_client_event_callback, connection_handle,
               &server_characteristic[idx],
               GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_INDICATION );
       return status;
@@ -795,6 +808,60 @@ int Client::enable_indications( service_uuid_t uuid )
 
   debug(
       "[BLE] Tried to enable notifications for non-discovered UUID: " );
+  if ( std::holds_alternative<uint16_t>( uuid ) ) {
+    debug( "0x%X...\n", std::get<uint16_t>( uuid ) );
+  }
+  else {  // UUID128
+    debug( "%s...\n",
+           uuid128_to_str( std::get<const uint8_t*>( uuid ) ) );
+  }
+  return -1;
+}
+
+int Client::disable_notifications_indications( service_uuid_t uuid )
+{
+  if ( state != TC_W4_READY )
+    return -1;
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Iterate to find correct characteristic
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  for ( int idx = 0; idx < total_characteristics_discovered; idx++ ) {
+    if ( uuid_eq( uuid, server_characteristic[idx] ) ) {
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      // Disable any previously-enabled characteristics
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      uint8_t status =
+          gatt_client_write_client_characteristic_configuration(
+              gatt_client_event_callback, connection_handle,
+              &server_characteristic[idx],
+              GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NONE );
+      return status;
+    }
+  }
+
+  debug(
+      "[BLE] Tried to disable characteristics for non-discovered UUID: " );
+  if ( std::holds_alternative<uint16_t>( uuid ) ) {
+    debug( "0x%X...\n", std::get<uint16_t>( uuid ) );
+  }
+  else {  // UUID128
+    debug( "%s...\n",
+           uuid128_to_str( std::get<const uint8_t*>( uuid ) ) );
+  }
+  return -1;
+}
+
+uint16_t Client::value_handle_from_uuid( service_uuid_t uuid )
+{
+  for ( int idx = 0; idx < total_characteristics_discovered; idx++ ) {
+    if ( uuid_eq( uuid, server_characteristic[idx] ) ) {
+      return server_characteristic[idx].value_handle;
+    }
+  }
+  debug( "[BLE] UUID not found: " );
   if ( std::holds_alternative<uint16_t>( uuid ) ) {
     debug( "0x%X...\n", std::get<uint16_t>( uuid ) );
   }

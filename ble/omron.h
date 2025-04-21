@@ -10,8 +10,10 @@
 
 enum omron_state_t {
   OM_IDLE = 0,
-  OM_ENABLE_INDICATE,
-  OM_WAIT_INDICATE,
+  OM_PAIR_NOTIFICATION,
+  OM_PAIR_UNLOCK,
+  OM_PAIR_WRITE_KEY,
+  OM_PAIR_DISABLE_NOTIFICATION,
   OM_READY,
 };
 
@@ -22,12 +24,17 @@ class Omron : public Client {
   void after_discovery() override;
   void child_gatt_event_handler( uint8_t  packet_type,
                                  uint8_t* packet ) override;
+  void notification_handler( uint16_t value_handle, const uint8_t* value,
+                             uint32_t value_length ) override;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Helper functions for state machine transitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  void enable_indicate();
-  void wait_indicate();
+  void pair_notification();
+  void pair_unlock();
+  void pair_write_key();
+  void pair_disable_notification();
+  void blood_pressure_ready();
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Helper public functions

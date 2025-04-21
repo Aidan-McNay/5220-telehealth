@@ -38,6 +38,19 @@ static PT_THREAD( print_characteristics( struct pt *pt ) )
 // main
 // -----------------------------------------------------------------------
 
+void my_hci_reset()
+{
+}
+void my_hci_log_packet( uint8_t packet_type, uint8_t in, uint8_t *packet,
+                        uint16_t len )
+{
+}
+void my_hci_log_info( int log_level, const char *format, va_list argptr )
+{
+  vprintf( format, argptr );
+  printf( "\n" );
+}
+
 int main()
 {
   stdio_init_all();
@@ -45,6 +58,11 @@ int main()
 
   // Delay a bit to set up printf connection
   sleep_ms( 10000 );
+  hci_dump_t dump_config = { .reset       = my_hci_reset,
+                             .log_packet  = my_hci_log_packet,
+                             .log_message = my_hci_log_info };
+  hci_dump_init( &dump_config );
+  att_db_util_init();
   blood_pressure.connect_to_server();
 
   pt_add_thread( print_characteristics );

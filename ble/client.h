@@ -93,8 +93,10 @@ class Client {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  protected:
   // Return 0 on success
-  int enable_notifications( service_uuid_t uuid );
-  int enable_indications( service_uuid_t uuid );
+  int      enable_notifications( service_uuid_t uuid );
+  int      enable_indications( service_uuid_t uuid );
+  int      disable_notifications_indications( service_uuid_t uuid );
+  uint16_t value_handle_from_uuid( service_uuid_t uuid );
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public accessor functions
@@ -173,6 +175,12 @@ class Client {
   void characteristic_description_discovery();
   void read_characteristic_value();
   void read_characteristic_config();
+
+  void ( *hci_event_callback )( uint8_t packet_type, uint16_t channel,
+                                uint8_t* packet, uint16_t size );
+  void ( *gatt_client_event_callback )( uint8_t  packet_type,
+                                        uint16_t channel, uint8_t* packet,
+                                        uint16_t size );
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Event handlers
