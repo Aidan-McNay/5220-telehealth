@@ -47,6 +47,7 @@ project(
 )
 pico_sdk_init()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+add_subdirectory(lorawan-library-for-pico)
 
 # ------------------------------------------------------------------------
 # btstack configuration
@@ -72,6 +73,7 @@ set(PICO_LIBS
   pico_btstack_ble
   pico_btstack_cyw43
   pico_cyw43_arch_none
+  pico_lorawan
 )
 
 set(SUBDIRS
