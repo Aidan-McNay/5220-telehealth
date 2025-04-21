@@ -737,16 +737,6 @@ int Client::enable_notifications( service_uuid_t uuid )
       }
 
       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      // Check if they're already enabled
-      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-      if ( ( server_characteristic_configurations[idx] &
-             GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION ) >
-           0 ) {
-        debug( "[BLE] Notifications already enabled...\n" );
-        return 2000;
-      }
-
-      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
       // Enable notifications
       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
