@@ -47,6 +47,15 @@ project(
 )
 pico_sdk_init()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+# Suppress warnings for LoRaWAN library
+add_compile_options(
+  -Wno-stringop-overflow
+)
+# Define LED pin as dummpy pin to avoid errors
+add_compile_definitions(
+  PICO_DEFAULT_LED_PIN=0
+)
 add_subdirectory(lorawan-library-for-pico)
 
 # ------------------------------------------------------------------------

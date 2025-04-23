@@ -740,6 +740,8 @@ int Client::enable_notifications( service_uuid_t uuid )
       // Enable notifications
       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+      debug( "[BLE] Enabling notifications for value handle 0x%X...\n",
+             server_characteristic[idx].value_handle );
       uint8_t status =
           gatt_client_write_client_characteristic_configuration(
               gatt_client_event_callback, connection_handle,
