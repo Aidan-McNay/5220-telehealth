@@ -31,7 +31,7 @@ static PT_THREAD( print_characteristics( struct pt *pt ) )
   // Print characteristics
   if ( first_time ) {
     first_time = false;
-    blood_pressure.print();
+    // blood_pressure.print();
   }
   PT_END( pt );
 }
@@ -47,7 +47,7 @@ int main()
 
   // Delay a bit to set up printf connection
   sleep_ms( 10000 );
-  // hci_dump_init( hci_dump_embedded_stdout_get_instance() );
+  hci_dump_init( hci_dump_embedded_stdout_get_instance() );
   att_db_util_init();
   blood_pressure.connect_to_server();
 

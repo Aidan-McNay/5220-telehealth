@@ -10,6 +10,7 @@
 
 enum omron_state_t {
   OM_IDLE = 0,
+  OM_PAIR,
   OM_PAIR_NOTIFICATION,
   OM_PAIR_UNLOCK,
   OM_PAIR_WRITE_KEY,
@@ -35,6 +36,7 @@ class Omron : public Client {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Helper functions for state machine transitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  void pair();
   void pair_notification();
   void pair_unlock();
   void pair_write_key();
@@ -58,9 +60,14 @@ class Omron : public Client {
   // Checking service
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  protected:
-  omron_state_t omron_state;
-  bool          correct_service_name( const uint8_t* service_name );
-  bool          correct_service( uint8_t* advertisement_report ) override;
+  omron_state_t                          omron_state;
+  btstack_packet_callback_registration_t sm_event_callback_registration;
+  bool correct_service_name( const uint8_t* service_name );
+  bool correct_service( uint8_t* advertisement_report ) override;
+
+ public:
+  void sm_event_handler( uint8_t packet_type, uint16_t channel,
+                         uint8_t* packet, uint16_t size );
 };
 
 #endif  // BLE_OMRON_H

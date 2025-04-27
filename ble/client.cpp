@@ -65,6 +65,9 @@ Client::Client()
   l2cap_init();
   sm_init();
   sm_set_io_capabilities( IO_CAPABILITY_NO_INPUT_NO_OUTPUT );
+  sm_set_authentication_requirements( SM_AUTHREQ_BONDING |
+                                      SM_AUTHREQ_MITM_PROTECTION |
+                                      SM_AUTHREQ_SECURE_CONNECTION );
 
   // Setup empty ATT server - only needed if LE Peripheral does ATT
   // queries on its own, e.g. Android and iOS
@@ -1005,8 +1008,7 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
       if ( state != TC_W4_CONNECT )
         return;
 
-      // Initiate service discovery with our handler
-      state = TC_W4_SERVICE_RESULT;
+      // Initiate pairing
       connection_handle =
           hci_subevent_le_connection_complete_get_connection_handle(
               packet );

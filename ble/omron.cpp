@@ -7,6 +7,8 @@
 #include "pico/stdlib.h"
 #include "utils/debug.h"
 
+#define FIXED_PASSKEY 123456U
+
 // -----------------------------------------------------------------------
 // Service identifiers
 // -----------------------------------------------------------------------
@@ -31,7 +33,7 @@ uint8_t unlock_command[17] = { 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0x00, 0x00, 0x00, 0x00 };
 
-uint8_t unlock_key[17] = { 0x01, 0xDE, 0xAD, 0xBE, 0xEF, 0x12,
+uint8_t unlock_key[17] = { 0x00, 0xDE, 0xAD, 0xBE, 0xEF, 0x12,
                            0x34, 0x12, 0x34, 0xDE, 0xAD, 0xBE,
                            0xEF, 0x12, 0x34, 0x12, 0x34 };
 
@@ -101,7 +103,7 @@ bool Omron::correct_service( uint8_t* advertisement_report )
 
 void Omron::after_discovery()
 {
-  pair_notification();
+  pair();
 }
 
 // -----------------------------------------------------------------------
@@ -134,14 +136,40 @@ void omron_schedule_poll()
   add_alarm_in_ms( 2000, global_omron_poll, NULL, false );
 }
 
+// -----------------------------------------------------------------------
+// Security Manager
+// -----------------------------------------------------------------------
+
+void global_sm_event_handler( uint8_t packet_type, uint16_t channel,
+                              uint8_t* packet, uint16_t size )
+{
+  if ( curr_omron ) {
+    curr_omron->sm_event_handler( packet_type, channel, packet, size );
+  }
+}
+
+// -----------------------------------------------------------------------
+// Constructor
+// -----------------------------------------------------------------------
+
 Omron::Omron() : Client(), omron_state( OM_IDLE ), poll_event( NONE )
 {
   curr_omron = this;
+
+  sm_event_callback_registration.callback = &global_sm_event_handler;
+  sm_add_event_handler( &sm_event_callback_registration );
 }
 
 // -----------------------------------------------------------------------
 // Helper state machine functions
 // -----------------------------------------------------------------------
+
+void Omron::pair()
+{
+  debug( "[BLE] Beginning to pair...\n" );
+  omron_state = OM_PAIR;
+  sm_request_pairing( connection_handle );
+}
 
 void Omron::pair_notification()
 {
@@ -169,7 +197,7 @@ void Omron::pair_unlock()
   debug( "[Omron] Unlocking device...\n" );
   int status = gatt_client_write_value_of_characteristic(
       gatt_client_event_callback, connection_handle,
-      value_handle_from_uuid( unlock_uuid ), 17, unlock_key );
+      value_handle_from_uuid( unlock_uuid ), 17, unlock_command );
   if ( status != 0 ) {
     debug( "[Omron] Error writing the unlock value (%d)...\n", status );
   }
@@ -333,7 +361,7 @@ void Omron::notification_handler( uint16_t       value_handle,
         debug( "[Omron] Wrong value handle...\n" );
         break;
       }
-      if ( ( value[0] != 0x82 ) ) {
+      if ( ( value[0] != 0x82 ) || ( value[1] != 0x00 ) ) {
         debug(
             "[Omron] Couldn't enter programming mode (ensure pairing mode is active): 0x" );
         for ( int i = 0; i < value_length; i++ ) {
@@ -355,7 +383,7 @@ void Omron::notification_handler( uint16_t       value_handle,
         debug( "[Omron] Wrong value handle...\n" );
         break;
       }
-      if ( ( value[0] != 0x80 ) ) {
+      if ( ( value[0] != 0x80 ) || ( value[1] != 0x00 ) ) {
         debug( "[Omron] Failed to program new key: 0x" );
         for ( int i = 0; i < value_length; i++ ) {
           debug( "%X", value[i] );
@@ -368,6 +396,111 @@ void Omron::notification_handler( uint16_t       value_handle,
       pair_disable_notification();
       break;
 
+    default:
+      break;
+  }
+}
+
+// -----------------------------------------------------------------------
+// sm_event_handler
+// -----------------------------------------------------------------------
+// Handle event from the security manager
+
+void Omron::sm_event_handler( uint8_t packet_type, uint16_t channel,
+                              uint8_t* packet, uint16_t size )
+{
+  UNUSED( channel );
+  UNUSED( size );
+
+  if ( packet_type != HCI_EVENT_PACKET )
+    return;
+
+  bd_addr_t      addr;
+  bd_addr_type_t addr_type;
+
+  switch ( hci_event_packet_get_type( packet ) ) {
+    case SM_EVENT_JUST_WORKS_REQUEST:
+      debug( "[SM] Just works requested\n" );
+      sm_just_works_confirm(
+          sm_event_just_works_request_get_handle( packet ) );
+      break;
+    case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
+      debug( "[SM] Confirming numeric comparison: %x\n",
+             sm_event_numeric_comparison_request_get_passkey( packet ) );
+      sm_numeric_comparison_confirm(
+          sm_event_passkey_display_number_get_handle( packet ) );
+      break;
+    case SM_EVENT_PASSKEY_DISPLAY_NUMBER:
+      debug( "[SM] Display Passkey: %x\n",
+             sm_event_passkey_display_number_get_passkey( packet ) );
+      break;
+    case SM_EVENT_PASSKEY_INPUT_NUMBER:
+      debug( "[SM] Passkey Input requested\n" );
+      debug( "[SM] Sending fixed passkey %x\n",
+             (uint32_t) FIXED_PASSKEY );
+      sm_passkey_input(
+          sm_event_passkey_input_number_get_handle( packet ),
+          FIXED_PASSKEY );
+      break;
+    case SM_EVENT_PAIRING_STARTED:
+      debug( "[SM] Pairing started\n" );
+      break;
+    case SM_EVENT_PAIRING_COMPLETE:
+      switch ( sm_event_pairing_complete_get_status( packet ) ) {
+        case ERROR_CODE_SUCCESS:
+          debug( "[SM] Pairing complete, success\n" );
+          pair_notification();
+          break;
+        case ERROR_CODE_CONNECTION_TIMEOUT:
+          debug( "[SM] Pairing failed, timeout\n" );
+          break;
+        case ERROR_CODE_REMOTE_USER_TERMINATED_CONNECTION:
+          debug( "[SM] Pairing failed, disconnected\n" );
+          break;
+        case ERROR_CODE_AUTHENTICATION_FAILURE:
+          debug(
+              "[SM] Pairing failed, authentication failure with reason = %u\n",
+              sm_event_pairing_complete_get_reason( packet ) );
+          break;
+        default:
+          break;
+      }
+      break;
+    case SM_EVENT_REENCRYPTION_STARTED:
+      sm_event_reencryption_complete_get_address( packet, addr );
+      debug(
+          "[SM] Bonding information exists for addr type %u, identity addr %s -> start re-encryption\n",
+          sm_event_reencryption_started_get_addr_type( packet ),
+          bd_addr_to_str( addr ) );
+      break;
+    case SM_EVENT_REENCRYPTION_COMPLETE:
+      switch ( sm_event_reencryption_complete_get_status( packet ) ) {
+        case ERROR_CODE_SUCCESS:
+          debug( "[SM] Re-encryption complete, success\n" );
+          break;
+        case ERROR_CODE_CONNECTION_TIMEOUT:
+          debug( "[SM] Re-encryption failed, timeout\n" );
+          break;
+        case ERROR_CODE_REMOTE_USER_TERMINATED_CONNECTION:
+          debug( "[SM] Re-encryption failed, disconnected\n" );
+          break;
+        case ERROR_CODE_PIN_OR_KEY_MISSING:
+          debug(
+              "[SM] Re-encryption failed, bonding information missing\n\n" );
+          debug( "[SM] Assuming remote lost bonding information\n" );
+          debug(
+              "[SM] Deleting local bonding information and start new pairing...\n" );
+          sm_event_reencryption_complete_get_address( packet, addr );
+          addr_type = (bd_addr_type_t)
+              sm_event_reencryption_started_get_addr_type( packet );
+          gap_delete_bonding( addr_type, addr );
+          sm_request_pairing(
+              sm_event_reencryption_complete_get_handle( packet ) );
+          break;
+        default:
+          break;
+      }
+      break;
     default:
       break;
   }
