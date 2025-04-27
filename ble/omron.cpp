@@ -117,6 +117,7 @@ void Omron::pair_notification()
 
   debug( "[Omron] Enabling unlock notifications...\n" );
   int status = enable_notifications( unlock_uuid );
+  // int status = enable_indications( blood_pressure_measurement );
   if ( status != 0 ) {
     debug( "[Omron] Error enabling unlock notifications (%d)...\n",
            status );
@@ -131,9 +132,12 @@ void Omron::pair_unlock()
   }
 
   debug( "[Omron] Unlocking device...\n" );
-  gatt_client_write_value_of_characteristic(
+  int status = gatt_client_write_value_of_characteristic(
       gatt_client_event_callback, connection_handle,
       value_handle_from_uuid( unlock_uuid ), 17, unlock_command );
+  if ( status != 0 ) {
+    debug( "[Omron] Error writing the unlock value (%d)...\n", status );
+  }
 }
 
 void Omron::pair_write_key()
@@ -209,7 +213,6 @@ void Omron::child_gatt_event_handler( uint8_t  packet_type,
             debug(
                 "[Omron] Error enabling unlock notifications (0x%X)...\n",
                 gatt_event_query_complete_get_att_status( packet ) );
-            att_dump_attributes();
             break;
           }
           pair_unlock();
@@ -224,13 +227,21 @@ void Omron::child_gatt_event_handler( uint8_t  packet_type,
     // Unlock command (do nothing, advance state on notification)
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     case OM_PAIR_UNLOCK:
-      debug( "[Omron] Received unlock command acknowledgement...\n" );
-      if ( gatt_event_query_complete_get_att_status( packet ) !=
-           ATT_ERROR_SUCCESS ) {
-        debug( "[Omron] Error writing unlock command (0x%X)...\n",
-               gatt_event_query_complete_get_att_status( packet ) );
-        att_dump_attributes();
-        break;
+      switch ( packet_type ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Write response
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          debug( "[Omron] Received unlock command acknowledgement...\n" );
+          if ( gatt_event_query_complete_get_att_status( packet ) !=
+               ATT_ERROR_SUCCESS ) {
+            debug( "[Omron] Error writing unlock command (0x%X)...\n",
+                   gatt_event_query_complete_get_att_status( packet ) );
+            break;
+          }
+          break;
+        default:
+          break;
       }
       break;
 
@@ -288,7 +299,7 @@ void Omron::notification_handler( uint16_t       value_handle,
         debug( "[Omron] Wrong value handle...\n" );
         break;
       }
-      if ( ( value[0] != 0x82 ) || ( value[1] != 0x00 ) ) {
+      if ( ( value[0] != 0x82 ) ) {
         debug(
             "[Omron] Couldn't enter programming mode (ensure pairing mode is active): 0x" );
         for ( int i = 0; i < value_length; i++ ) {

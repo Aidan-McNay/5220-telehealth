@@ -139,7 +139,6 @@ class Client {
   gatt_client_notification_t notification_listener;
 
   // Characteristics
-  char                         notifications_enabled[MAX_CHARACTERISTICS];
   gatt_client_characteristic_t server_characteristic[MAX_CHARACTERISTICS];
   int server_characteristic_service_idx[MAX_CHARACTERISTICS];
   gatt_client_characteristic_descriptors_t

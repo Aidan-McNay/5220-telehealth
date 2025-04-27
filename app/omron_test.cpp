@@ -46,7 +46,7 @@ int main()
 
   // Delay a bit to set up printf connection
   sleep_ms( 10000 );
-  hci_dump_init( hci_dump_embedded_stdout_get_instance() );
+  // hci_dump_init( hci_dump_embedded_stdout_get_instance() );
   att_db_util_init();
   blood_pressure.connect_to_server();
 

@@ -198,22 +198,39 @@ void Client::characteristic_description_discovery()
   state = TC_W4_CHARACTERISTIC_DESCRIPTION;
 
   // Get the description from the correct descriptor
-  if ( is_description(
-           server_characteristic_descriptor[curr_char_idx +
-                                            curr_total_char_idx][0] ) ) {
-    // 0 has the description
-    gatt_client_read_characteristic_descriptor(
-        gatt_client_event_callback, connection_handle,
-        &server_characteristic_descriptor[curr_char_idx +
-                                          curr_total_char_idx][0] );
+  while ( curr_char_idx <
+          num_characteristics_discovered[curr_service_idx] ) {
+    if ( is_description(
+             server_characteristic_descriptor[curr_char_idx +
+                                              curr_total_char_idx]
+                                             [0] ) ) {
+      // 0 has the description
+      gatt_client_read_characteristic_descriptor(
+          gatt_client_event_callback, connection_handle,
+          &server_characteristic_descriptor[curr_char_idx +
+                                            curr_total_char_idx][0] );
+      return;
+    }
+    else if ( is_description(
+                  server_characteristic_descriptor[curr_char_idx +
+                                                   curr_total_char_idx]
+                                                  [1] ) ) {
+      // 1 has the description
+      gatt_client_read_characteristic_descriptor(
+          gatt_client_event_callback, connection_handle,
+          &server_characteristic_descriptor[curr_char_idx +
+                                            curr_total_char_idx][1] );
+      return;
+    }
+    else {
+      curr_char_idx++;
+    }
   }
-  else {
-    // 1 has the description
-    gatt_client_read_characteristic_descriptor(
-        gatt_client_event_callback, connection_handle,
-        &server_characteristic_descriptor[curr_char_idx +
-                                          curr_total_char_idx][1] );
-  }
+
+  // No descriptions to discover
+  curr_char_idx       = 0;
+  curr_char_descr_idx = 0;
+  read_characteristic_value();
 }
 
 void Client::read_characteristic_value()
@@ -224,9 +241,25 @@ void Client::read_characteristic_value()
     debug( "[BLE] ============ CLIENT NOT READY ============\n" );
   }
   state = TC_W4_CHARACTERISTIC_VALUE;
-  gatt_client_read_value_of_characteristic(
-      gatt_client_event_callback, connection_handle,
-      &server_characteristic[curr_char_idx + curr_total_char_idx] );
+  while ( curr_char_idx <
+          num_characteristics_discovered[curr_service_idx] ) {
+    if ( ( server_characteristic[curr_char_idx + curr_total_char_idx]
+               .properties &
+           ATT_PROPERTY_READ ) != 0 ) {
+      gatt_client_read_value_of_characteristic(
+          gatt_client_event_callback, connection_handle,
+          &server_characteristic[curr_char_idx + curr_total_char_idx] );
+      return;
+    }
+    else {
+      curr_char_idx++;
+    }
+  }
+
+  // No properties to read
+  curr_char_idx       = 0;
+  curr_char_descr_idx = 0;
+  read_characteristic_config();
 }
 
 void Client::read_characteristic_config()
@@ -340,14 +373,11 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           // Make sure no errors
           att_status = gatt_event_query_complete_get_att_status( packet );
           if ( att_status != ATT_ERROR_SUCCESS ) {
-            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x.\n",
-                    att_status );
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
             break;
           }
-
-          // Clear all notifications
-          memset( notifications_enabled, -1, MAX_CHARACTERISTICS );
           characteristic_discovery();
 
         default:
@@ -368,8 +398,18 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
                                             curr_total_char_idx] =
               curr_service_idx;
           gatt_event_characteristic_query_result_get_characteristic(
-              packet, &server_characteristic[( curr_char_idx++ ) +
+              packet, &server_characteristic[curr_char_idx +
                                              curr_total_char_idx] );
+
+          // Hacky fix for BTStack issue with notifications later
+          //  - https://github.com/bluekitchen/btstack/issues/678
+          server_characteristic[curr_char_idx + curr_total_char_idx]
+              .end_handle =
+              server_characteristic[curr_char_idx + curr_total_char_idx]
+                  .value_handle +
+              1;
+
+          curr_char_idx++;
           break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -386,8 +426,8 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           // Make sure no errors
           att_status = gatt_event_query_complete_get_att_status( packet );
           if ( att_status != ATT_ERROR_SUCCESS ) {
-            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x.\n",
-                    att_status );
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
             break;
           }
@@ -421,6 +461,14 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
         case GATT_EVENT_QUERY_COMPLETE:
           curr_char_idx++;
           curr_char_descr_idx = 0;
+
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
+            gap_disconnect( connection_handle );
+            break;
+          }
 
           // Discover next characteristic, if any remaining
           if ( curr_char_idx <
@@ -471,6 +519,13 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
         // Done with description
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_QUERY_COMPLETE:
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
+            gap_disconnect( connection_handle );
+            break;
+          }
           curr_char_idx++;
 
           // Read remaining descriptions, if any
@@ -523,6 +578,13 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
         // Done with value
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_QUERY_COMPLETE:
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
+            gap_disconnect( connection_handle );
+            break;
+          }
           curr_char_idx++;
 
           // Read remaining values, if any
@@ -563,17 +625,19 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           server_characteristic_configurations[curr_char_idx +
                                                curr_total_char_idx] =
               little_endian_read_16( config, 0 );
-
-          // Check whether notifications are enabled
-          notifications_enabled[curr_char_idx + curr_total_char_idx] =
-              ( (char) server_characteristic_configurations
-                    [curr_char_idx + curr_total_char_idx] );
           break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         // Done with configuration
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_QUERY_COMPLETE:
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
+            gap_disconnect( connection_handle );
+            break;
+          }
           curr_char_idx++;
           read_characteristic_config();
           break;
@@ -731,7 +795,7 @@ int Client::enable_notifications( service_uuid_t uuid )
       if ( ( server_characteristic[idx].properties &
              ATT_PROPERTY_NOTIFY ) == 0 ) {
         debug(
-            "[BLE] Tried to enable notifications for 0x%X when not available...",
+            "[BLE] Tried to enable notifications for 0x%X when not available...\n",
             server_characteristic[idx].value_handle );
         return -1;
       }
@@ -1028,6 +1092,10 @@ void Client::print()
     printf( "    - Permissions: " );
     print_permissions( server_characteristic[idx].properties );
     printf( "\n" );
+
+    printf( "    - Range: 0x%X - 0x%X\n",
+            server_characteristic[idx].start_handle,
+            server_characteristic[idx].end_handle );
 
     printf( "    - Value Handle: " );
     printf( "0x%X", server_characteristic[idx].value_handle );
