@@ -1031,7 +1031,7 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
       reset();
 
       // If we're not off, start listening again
-      if ( state != TC_OFF ) {
+      if ( state != TC_OFF & should_reconnect() ) {
         start();
       }
       break;

@@ -103,7 +103,7 @@ bool Omron::correct_service( uint8_t* advertisement_report )
 
 void Omron::after_discovery()
 {
-  pair();
+  data_indications();
 }
 
 // -----------------------------------------------------------------------
@@ -152,7 +152,11 @@ void global_sm_event_handler( uint8_t packet_type, uint16_t channel,
 // Constructor
 // -----------------------------------------------------------------------
 
-Omron::Omron() : Client(), omron_state( OM_IDLE ), poll_event( NONE )
+Omron::Omron()
+    : Client(),
+      omron_state( OM_IDLE ),
+      poll_event( NONE ),
+      curr_data_valid( false )
 {
   curr_omron = this;
 
@@ -161,12 +165,21 @@ Omron::Omron() : Client(), omron_state( OM_IDLE ), poll_event( NONE )
 }
 
 // -----------------------------------------------------------------------
+// Repair when no data found
+// -----------------------------------------------------------------------
+
+bool Omron::should_reconnect()
+{
+  return !curr_data_valid;
+}
+
+// -----------------------------------------------------------------------
 // Helper state machine functions
 // -----------------------------------------------------------------------
 
-void Omron::pair()
+void Omron::start_pair()
 {
-  debug( "[BLE] Beginning to pair...\n" );
+  debug( "[Omron] Beginning to pair...\n" );
   omron_state = OM_PAIR;
   sm_request_pairing( connection_handle );
 }
@@ -180,7 +193,6 @@ void Omron::pair_notification()
 
   debug( "[Omron] Enabling unlock notifications...\n" );
   int status = enable_notifications( unlock_uuid );
-  // int status = enable_indications( blood_pressure_measurement );
   if ( status != 0 ) {
     debug( "[Omron] Error enabling unlock notifications (%d)...\n",
            status );
@@ -232,7 +244,7 @@ void Omron::pair_disable_notification()
   }
 }
 
-void Omron::blood_pressure_ready()
+void Omron::pair_done()
 {
   omron_state = OM_READY;
   if ( !gatt_client_is_ready( connection_handle ) ) {
@@ -242,13 +254,34 @@ void Omron::blood_pressure_ready()
   debug( "[Omron] Pairing key written!\n" );
 }
 
+void Omron::blood_pressure_ready()
+{
+  omron_state = OM_READY;
+  debug( "[Omron] Blood pressure received!\n" );
+}
+
+void Omron::data_indications()
+{
+  omron_state = OM_DATA_INDICATION;
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[Omron] ============ CLIENT NOT READY ============\n" );
+  }
+
+  debug( "[Omron] Enabling measurement indications...\n" );
+  int status = enable_indications( blood_pressure_measurement );
+  if ( status != 0 ) {
+    debug( "[Omron] Error enabling measurement indications (%d)...\n",
+           status );
+  }
+}
+
 // -----------------------------------------------------------------------
 // Helper functions
 // -----------------------------------------------------------------------
 
 bool Omron::omron_ready()
 {
-  return omron_state == OM_READY;
+  return ( omron_state == OM_READY ) & ready();
 }
 
 // -----------------------------------------------------------------------
@@ -332,10 +365,32 @@ void Omron::child_gatt_event_handler( uint8_t  packet_type,
                gatt_event_query_complete_get_att_status( packet ) );
         break;
       }
-      blood_pressure_ready();
+      pair_done();
       break;
 
     default:
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Handle data indication enable response
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case OM_DATA_INDICATION:
+      switch ( packet_type ) {
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        // Indication response
+        // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        case GATT_EVENT_QUERY_COMPLETE:
+          if ( gatt_event_query_complete_get_att_status( packet ) !=
+               ATT_ERROR_SUCCESS ) {
+            debug( "[Omron] Error enabling data indications (0x%X)...\n",
+                   gatt_event_query_complete_get_att_status( packet ) );
+            break;
+          }
+          break;
+
+        default:
+          break;
+      }
       break;
   }
 }
@@ -394,6 +449,46 @@ void Omron::notification_handler( uint16_t       value_handle,
 
       // Received good command - advance state
       pair_disable_notification();
+      break;
+
+    default:
+      break;
+  }
+}
+
+// -----------------------------------------------------------------------
+// indication_handler
+// -----------------------------------------------------------------------
+
+void Omron::indication_handler( uint16_t       value_handle,
+                                const uint8_t* value,
+                                uint32_t       value_length )
+{
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Handle by current state
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  switch ( omron_state ) {
+    case OM_DATA_INDICATION:
+      if ( value_handle_from_uuid( blood_pressure_measurement ) !=
+           value_handle ) {
+        debug( "[Omron] Wrong value handle...\n" );
+        break;
+      }
+
+      debug( "[Omron] Received Omron Data: 0x" );
+      for ( int i = 0; i < value_length; i++ ) {
+        debug( "(%x)", value[i] );
+      }
+      debug( "\n" );
+
+      // Parse data
+      curr_data.sys_pressure = little_endian_read_16( value, 1 );
+      curr_data.dia_pressure = little_endian_read_16( value, 3 );
+      // Arterial Pressure is 5
+      curr_data.bpm   = little_endian_read_16( value, 14 );
+      curr_data_valid = true;
+      blood_pressure_ready();
       break;
 
     default:
@@ -504,4 +599,13 @@ void Omron::sm_event_handler( uint8_t packet_type, uint16_t channel,
     default:
       break;
   }
+}
+
+// -----------------------------------------------------------------------
+// User command functions
+// -----------------------------------------------------------------------
+
+void Omron::pair()
+{
+  start_pair();
 }

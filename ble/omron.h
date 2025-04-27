@@ -10,13 +10,24 @@
 
 enum omron_state_t {
   OM_IDLE = 0,
+  OM_READY,
+
   OM_PAIR,
   OM_PAIR_NOTIFICATION,
   OM_PAIR_UNLOCK,
   OM_PAIR_WRITE_KEY,
   OM_PAIR_DISABLE_NOTIFICATION,
-  OM_READY,
+  OM_PAIR_START_TRANSMISSION,
+  OM_PAIR_WAIT_TRANSMISSION,
+
+  OM_DATA_INDICATION,
 };
+
+typedef struct {
+  uint16_t sys_pressure;
+  uint16_t dia_pressure;
+  uint16_t bpm;
+} omron_data_t;
 
 enum omron_poll_event_t {
   NONE,
@@ -32,15 +43,21 @@ class Omron : public Client {
                                  uint8_t* packet ) override;
   void notification_handler( uint16_t value_handle, const uint8_t* value,
                              uint32_t value_length ) override;
+  void indication_handler( uint16_t value_handle, const uint8_t* value,
+                           uint32_t value_length ) override;
+  bool should_reconnect() override;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Helper functions for state machine transitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  void pair();
+  void start_pair();
   void pair_notification();
   void pair_unlock();
   void pair_write_key();
   void pair_disable_notification();
+  void pair_done();
+
+  void data_indications();
   void blood_pressure_ready();
 
   // Helper for polling asynchronous tasks (public scope, but shouldn't
@@ -54,7 +71,14 @@ class Omron : public Client {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  public:
   Omron();
-  bool omron_ready();
+  bool omron_ready();  // Ready for more commands
+
+  // Writes the pairing key in pairing mode (currently unneeded)
+  void pair();
+
+  // Gets the current data (check if valid first)
+  omron_data_t curr_data;
+  bool         curr_data_valid;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Checking service

@@ -87,6 +87,8 @@ class Client {
   virtual void indication_handler( uint16_t       value_handle,
                                    const uint8_t* value,
                                    uint32_t       value_length );
+  // Whether to reconnect on a disconnection
+  virtual bool should_reconnect() = 0;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Helper functions for children
