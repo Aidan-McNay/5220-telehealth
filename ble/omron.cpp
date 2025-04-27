@@ -478,7 +478,7 @@ void Omron::indication_handler( uint16_t       value_handle,
 
       debug( "[Omron] Received Omron Data: 0x" );
       for ( int i = 0; i < value_length; i++ ) {
-        debug( "(%x)", value[i] );
+        debug( "%x", value[i] );
       }
       debug( "\n" );
 
