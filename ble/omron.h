@@ -17,6 +17,11 @@ enum omron_state_t {
   OM_READY,
 };
 
+enum omron_poll_event_t {
+  NONE,
+  PAIR_WRITE_KEY,
+};
+
 class Omron : public Client {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // BLE Definitions
@@ -36,10 +41,17 @@ class Omron : public Client {
   void pair_disable_notification();
   void blood_pressure_ready();
 
+  // Helper for polling asynchronous tasks (public scope, but shouldn't
+  // be used publicly)
+ public:
+  omron_poll_event_t poll_event;
+  void               poll();  // Return whether the event was handled
+
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Helper public functions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  public:
+  Omron();
   bool omron_ready();
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

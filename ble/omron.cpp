@@ -31,7 +31,7 @@ uint8_t unlock_command[17] = { 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0x00, 0x00, 0x00, 0x00 };
 
-uint8_t unlock_key[17] = { 0x00, 0xDE, 0xAD, 0xBE, 0xEF, 0x12,
+uint8_t unlock_key[17] = { 0x01, 0xDE, 0xAD, 0xBE, 0xEF, 0x12,
                            0x34, 0x12, 0x34, 0xDE, 0xAD, 0xBE,
                            0xEF, 0x12, 0x34, 0x12, 0x34 };
 
@@ -105,6 +105,41 @@ void Omron::after_discovery()
 }
 
 // -----------------------------------------------------------------------
+// Global callback to handle events driven from notifications
+// -----------------------------------------------------------------------
+
+Omron* curr_omron = nullptr;
+
+int64_t global_omron_poll( alarm_id_t id, __unused void* user_data )
+{
+  if ( curr_omron ) {
+    curr_omron->poll();
+  }
+  return 0;
+}
+
+void Omron::poll()
+{
+  omron_poll_event_t old_event = poll_event;
+  poll_event                   = NONE;
+
+  switch ( old_event ) {
+  PAIR_WRITE_KEY:
+    pair_write_key();
+  }
+}
+
+void omron_schedule_poll()
+{
+  add_alarm_in_ms( 2000, global_omron_poll, NULL, false );
+}
+
+Omron::Omron() : Client(), omron_state( OM_IDLE ), poll_event( NONE )
+{
+  curr_omron = this;
+}
+
+// -----------------------------------------------------------------------
 // Helper state machine functions
 // -----------------------------------------------------------------------
 
@@ -134,7 +169,7 @@ void Omron::pair_unlock()
   debug( "[Omron] Unlocking device...\n" );
   int status = gatt_client_write_value_of_characteristic(
       gatt_client_event_callback, connection_handle,
-      value_handle_from_uuid( unlock_uuid ), 17, unlock_command );
+      value_handle_from_uuid( unlock_uuid ), 17, unlock_key );
   if ( status != 0 ) {
     debug( "[Omron] Error writing the unlock value (%d)...\n", status );
   }
@@ -144,7 +179,8 @@ void Omron::pair_write_key()
 {
   omron_state = OM_PAIR_WRITE_KEY;
   if ( !gatt_client_is_ready( connection_handle ) ) {
-    debug( "[Omron] ============ CLIENT NOT READY ============\n" );
+    poll_event = PAIR_WRITE_KEY;
+    omron_schedule_poll();
   }
 
   debug( "[Omron] Writing unlock key...\n" );
@@ -249,12 +285,11 @@ void Omron::child_gatt_event_handler( uint8_t  packet_type,
     // Unlock key (do nothing, advance state on notification)
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     case OM_PAIR_WRITE_KEY:
-      debug( "[Omron] Received unlock key acknowledgement..." );
+      debug( "[Omron] Received unlock key acknowledgement...\n" );
       if ( gatt_event_query_complete_get_att_status( packet ) !=
            ATT_ERROR_SUCCESS ) {
         debug( "[Omron] Error writing unlock key (0x%X)...\n",
                gatt_event_query_complete_get_att_status( packet ) );
-        att_dump_attributes();
         break;
       }
       break;
@@ -267,7 +302,6 @@ void Omron::child_gatt_event_handler( uint8_t  packet_type,
            ATT_ERROR_SUCCESS ) {
         debug( "[Omron] Error disabling unlock notifications (0x%X)...\n",
                gatt_event_query_complete_get_att_status( packet ) );
-        att_dump_attributes();
         break;
       }
       blood_pressure_ready();
@@ -321,7 +355,7 @@ void Omron::notification_handler( uint16_t       value_handle,
         debug( "[Omron] Wrong value handle...\n" );
         break;
       }
-      if ( ( value[0] != 0x80 ) || ( value[1] != 0x00 ) ) {
+      if ( ( value[0] != 0x80 ) ) {
         debug( "[Omron] Failed to program new key: 0x" );
         for ( int i = 0; i < value_length; i++ ) {
           debug( "%X", value[i] );

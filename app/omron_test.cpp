@@ -23,6 +23,7 @@ static PT_THREAD( print_characteristics( struct pt *pt ) )
 
   // Wait until discovered
   while ( !blood_pressure.ready() ) {
+    first_time = true;
     PT_YIELD_usec( 500000 );
     printf( "Waiting...\n" );
   }
