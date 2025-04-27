@@ -26,6 +26,7 @@ enum omron_state_t {
 typedef struct {
   uint16_t sys_pressure;
   uint16_t dia_pressure;
+  uint16_t art_pressure;
   uint16_t bpm;
 } omron_data_t;
 

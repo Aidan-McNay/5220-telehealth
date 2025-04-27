@@ -485,9 +485,9 @@ void Omron::indication_handler( uint16_t       value_handle,
       // Parse data
       curr_data.sys_pressure = little_endian_read_16( value, 1 );
       curr_data.dia_pressure = little_endian_read_16( value, 3 );
-      // Arterial Pressure is 5
-      curr_data.bpm   = little_endian_read_16( value, 14 );
-      curr_data_valid = true;
+      curr_data.art_pressure = little_endian_read_16( value, 5 );
+      curr_data.bpm          = little_endian_read_16( value, 14 );
+      curr_data_valid        = true;
       blood_pressure_ready();
       break;
 
