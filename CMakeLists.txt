@@ -48,6 +48,16 @@ project(
 pico_sdk_init()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
+# Suppress warnings for LoRaWAN library
+add_compile_options(
+  -Wno-stringop-overflow
+)
+# Define LED pin as dummpy pin to avoid errors
+add_compile_definitions(
+  PICO_DEFAULT_LED_PIN=0
+)
+add_subdirectory(lorawan-library-for-pico)
+
 # ------------------------------------------------------------------------
 # btstack configuration
 # ------------------------------------------------------------------------
@@ -72,6 +82,7 @@ set(PICO_LIBS
   pico_btstack_ble
   pico_btstack_cyw43
   pico_cyw43_arch_none
+  pico_lorawan
 )
 
 set(SUBDIRS
@@ -134,6 +145,7 @@ foreach(APP_FILE ${APP_FILES})
   pico_add_extra_outputs(${APP_FILE_BIN})
 
   # Allow for printf over USB
-  pico_enable_stdio_usb(${APP_FILE_BIN} 1)
-  pico_enable_stdio_uart(${APP_FILE_BIN} 0)
+  # pico_enable_stdio_usb(${APP_FILE_BIN} 1)
+  # pico_enable_stdio_uart(${APP_FILE_BIN} 0)
+  # TODO PUT THESE LINES BACK^^ 
 endforeach(APP_FILE)

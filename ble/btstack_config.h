@@ -12,9 +12,14 @@
 
 // BTstack features that can be enabled
 #define ENABLE_LE_PERIPHERAL
+#define ENABLE_LOG_DEBUG
 #define ENABLE_LOG_INFO
 #define ENABLE_LOG_ERROR
 #define ENABLE_PRINTF_HEXDUMP
+// #define ENABLE_GATT_CLIENT_SERVICE_CHANGED
+// #define ENABLE_GATT_FIND_INFORMATION_FOR_CCC_DISCOVERY
+#define ENABLE_LE_SECURE_CONNECTIONS
+#define ENABLE_LE_SIGNED_WRITE
 
 // for the client
 #if RUNNING_AS_CLIENT
@@ -51,7 +56,7 @@
 #define NVM_NUM_LINK_KEYS 16
 
 // We don't give btstack a malloc, so use a fixed-size ATT DB.
-#define MAX_ATT_DB_SIZE 512
+#define MAX_ATT_DB_SIZE 1024
 
 // BTstack HAL configuration
 #define HAVE_EMBEDDED_TIME_MS

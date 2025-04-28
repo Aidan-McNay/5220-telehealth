@@ -1,0 +1,3 @@
+[submodule "lorawan-library-for-pico"]
+	path = lorawan-library-for-pico
+	url = git@github.com:ArmDeveloperEcosystem/lorawan-library-for-pico.git

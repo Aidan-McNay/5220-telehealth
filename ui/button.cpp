@@ -4,43 +4,77 @@
 // Implementation of a button
 
 #include "ui/button.h"
+#include "pico/stdlib.h"
+#include <stdio.h>
+#include "utils/debug.h"
 
 // -----------------------------------------------------------------------
 // Constructor
 // -----------------------------------------------------------------------
 
-Button::Button( int gpio_num ) : gpio_num( gpio_num )
+Button::Button(int gpio_num) : gpio_num(gpio_num), curr_state(NotPressed)
 {
-  // TODO: Set up the GPIO
+    debug("Button start\n");
+    stdio_init_all();
+    printf("Button GPIO %d\n", gpio_num);
+
+    gpio_init(gpio_num);
+    gpio_set_dir(gpio_num, GPIO_IN);
+    gpio_pull_up(gpio_num); // Enable internal pull-up resistor
+    debug("Button end\n");
 }
 
 // -----------------------------------------------------------------------
 // State Transitions
 // -----------------------------------------------------------------------
 
-button_state_t next_state( button_state_t curr_state, bool is_pressed )
+button_state_t next_state(button_state_t curr_state, bool is_pressed)
 {
-  // TODO: Return the next state, based on our current state and whether
-  // the button is pressed
-  //
-  // (Ideally use a switch-case statement)
+    switch (curr_state)
+    {
+    case NotPressed:
+        return is_pressed ? MaybePressed : NotPressed;
+
+    case MaybePressed:
+        return is_pressed ? Pressed : NotPressed;
+
+    case Pressed:
+        return is_pressed ? Pressed : MaybeNotPressed;
+
+    case MaybeNotPressed:
+        return is_pressed ? Pressed : NotPressed;
+
+    default:
+        return NotPressed;
+    }
 }
 
 // -----------------------------------------------------------------------
 // Pressing
 // -----------------------------------------------------------------------
 
-bool Button::is_pressed()
+void Button::update()
 {
-  // TODO: Check the current GPIO level, transition state, and check if
-  // the current state is "pressed"
-  //
-  // Use `next_state` for state transitions
+  bool physical_pressed = gpio_get(gpio_num) == 0;
+  button_state_t next = next_state(curr_state, physical_pressed);
+
+  justPressed = ((curr_state == MaybePressed) && next == Pressed);
+  justReleased = ((curr_state == Pressed) && next == MaybeNotPressed);
+
+  curr_state = next;
 }
 
-bool Button::just_pressed()
+bool Button::is_pressed() const
 {
-  // TODO: Same as `is_pressed`, but only if the last state wasn't pressed
-  //
-  // Use `next_state` for state transitions
+  return curr_state == Pressed;
+}
+
+bool Button::just_pressed() const
+{
+  return justPressed;
+}
+
+bool Button::just_released() const
+{
+  return justReleased;
 }

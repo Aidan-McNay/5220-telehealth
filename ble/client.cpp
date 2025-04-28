@@ -6,7 +6,6 @@
 #include "ble/client.h"
 #include "pico/cyw43_arch.h"
 #include "utils/debug.h"
-#include <functional>
 #include <stdio.h>
 
 // -----------------------------------------------------------------------
@@ -47,7 +46,10 @@ void Client::reset()
   total_characteristics_discovered = 0;
 }
 
-Client::Client() : state( TC_OFF )
+Client::Client()
+    : state( TC_OFF ),
+      hci_event_callback( global_hci_event_handler ),
+      gatt_client_event_callback( global_gatt_client_event_handler )
 {
   curr_client = this;
   reset();
@@ -63,6 +65,9 @@ Client::Client() : state( TC_OFF )
   l2cap_init();
   sm_init();
   sm_set_io_capabilities( IO_CAPABILITY_NO_INPUT_NO_OUTPUT );
+  sm_set_authentication_requirements( SM_AUTHREQ_BONDING |
+                                      SM_AUTHREQ_MITM_PROTECTION |
+                                      SM_AUTHREQ_SECURE_CONNECTION );
 
   // Setup empty ATT server - only needed if LE Peripheral does ATT
   // queries on its own, e.g. Android and iOS
@@ -145,8 +150,11 @@ void Client::connect()
 void Client::service_discovery()
 {
   debug( "[BLE] Entering service discovery...\n" );
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[BLE] ============ CLIENT NOT READY ============\n" );
+  }
   state = TC_W4_SERVICE_RESULT;
-  gatt_client_discover_primary_services( global_gatt_client_event_handler,
+  gatt_client_discover_primary_services( gatt_client_event_callback,
                                          connection_handle );
 }
 
@@ -154,10 +162,13 @@ void Client::characteristic_discovery()
 {
   debug( "[BLE] Discovering characteristics for service %d...\n",
          curr_service_idx );
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[BLE] ============ CLIENT NOT READY ============\n" );
+  }
   state         = TC_W4_CHARACTERISTIC_RESULT;
   curr_char_idx = 0;
   gatt_client_discover_characteristics_for_service(
-      global_gatt_client_event_handler, connection_handle,
+      gatt_client_event_callback, connection_handle,
       &server_service[curr_service_idx] );
 }
 
@@ -165,9 +176,12 @@ void Client::characteristic_descriptor_discovery()
 {
   debug( "[BLE] Discovering descriptor for characteristic %d...\n",
          curr_char_idx + curr_total_char_idx );
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[BLE] ============ CLIENT NOT READY ============\n" );
+  }
   state = TC_W4_CHARACTERISTIC_DESCRIPTOR;
   gatt_client_discover_characteristic_descriptors(
-      global_gatt_client_event_handler, connection_handle,
+      gatt_client_event_callback, connection_handle,
       &server_characteristic[curr_char_idx + curr_total_char_idx] );
 }
 
@@ -181,40 +195,82 @@ void Client::characteristic_description_discovery()
 {
   debug( "[BLE] Discovering description for characteristic %d...\n",
          curr_char_idx + curr_total_char_idx );
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[BLE] ============ CLIENT NOT READY ============\n" );
+  }
   state = TC_W4_CHARACTERISTIC_DESCRIPTION;
 
   // Get the description from the correct descriptor
-  if ( is_description(
-           server_characteristic_descriptor[curr_char_idx +
-                                            curr_total_char_idx][0] ) ) {
-    // 0 has the description
-    gatt_client_read_characteristic_descriptor(
-        global_gatt_client_event_handler, connection_handle,
-        &server_characteristic_descriptor[curr_char_idx +
-                                          curr_total_char_idx][0] );
+  while ( curr_char_idx <
+          num_characteristics_discovered[curr_service_idx] ) {
+    if ( is_description(
+             server_characteristic_descriptor[curr_char_idx +
+                                              curr_total_char_idx]
+                                             [0] ) ) {
+      // 0 has the description
+      gatt_client_read_characteristic_descriptor(
+          gatt_client_event_callback, connection_handle,
+          &server_characteristic_descriptor[curr_char_idx +
+                                            curr_total_char_idx][0] );
+      return;
+    }
+    else if ( is_description(
+                  server_characteristic_descriptor[curr_char_idx +
+                                                   curr_total_char_idx]
+                                                  [1] ) ) {
+      // 1 has the description
+      gatt_client_read_characteristic_descriptor(
+          gatt_client_event_callback, connection_handle,
+          &server_characteristic_descriptor[curr_char_idx +
+                                            curr_total_char_idx][1] );
+      return;
+    }
+    else {
+      curr_char_idx++;
+    }
   }
-  else {
-    // 1 has the description
-    gatt_client_read_characteristic_descriptor(
-        global_gatt_client_event_handler, connection_handle,
-        &server_characteristic_descriptor[curr_char_idx +
-                                          curr_total_char_idx][1] );
-  }
+
+  // No descriptions to discover
+  curr_char_idx       = 0;
+  curr_char_descr_idx = 0;
+  read_characteristic_value();
 }
 
 void Client::read_characteristic_value()
 {
   debug( "[BLE] Discovering value for characteristic %d...\n",
          curr_char_idx + curr_total_char_idx );
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[BLE] ============ CLIENT NOT READY ============\n" );
+  }
   state = TC_W4_CHARACTERISTIC_VALUE;
-  gatt_client_read_value_of_characteristic(
-      global_gatt_client_event_handler, connection_handle,
-      &server_characteristic[curr_char_idx + curr_total_char_idx] );
+  while ( curr_char_idx <
+          num_characteristics_discovered[curr_service_idx] ) {
+    if ( ( server_characteristic[curr_char_idx + curr_total_char_idx]
+               .properties &
+           ATT_PROPERTY_READ ) != 0 ) {
+      gatt_client_read_value_of_characteristic(
+          gatt_client_event_callback, connection_handle,
+          &server_characteristic[curr_char_idx + curr_total_char_idx] );
+      return;
+    }
+    else {
+      curr_char_idx++;
+    }
+  }
+
+  // No properties to read
+  curr_char_idx       = 0;
+  curr_char_descr_idx = 0;
+  read_characteristic_config();
 }
 
 void Client::read_characteristic_config()
 {
   state = TC_W4_CHARACTERISTIC_CONFIG;
+  if ( !gatt_client_is_ready( connection_handle ) ) {
+    debug( "[BLE] ============ CLIENT NOT READY ============\n" );
+  }
 
   // Find next descriptor for a configuration
   while ( ( curr_char_idx <
@@ -231,7 +287,7 @@ void Client::read_characteristic_config()
     debug( "[BLE] Discovering configuration for characteristic %d...\n",
            curr_char_idx + curr_total_char_idx );
     gatt_client_read_characteristic_descriptor(
-        global_gatt_client_event_handler, connection_handle,
+        gatt_client_event_callback, connection_handle,
         &server_characteristic_descriptor[curr_char_idx +
                                           curr_total_char_idx][0] );
     return;
@@ -250,8 +306,9 @@ void Client::read_characteristic_config()
   state               = TC_W4_READY;
   listener_registered = true;
   gatt_client_listen_for_characteristic_value_updates(
-      &notification_listener, global_gatt_client_event_handler,
+      &notification_listener, gatt_client_event_callback,
       connection_handle, NULL );
+  after_discovery();
 }
 
 // -----------------------------------------------------------------------
@@ -269,12 +326,16 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
   (void) size;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  // Check if it's a notification
+  // Check if it's a notification or indication
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
   uint8_t type_of_packet = hci_event_packet_get_type( packet );
   if ( type_of_packet == GATT_EVENT_NOTIFICATION ) {
     gatt_client_notification_handler( packet );
+    return;
+  }
+  if ( type_of_packet == GATT_EVENT_INDICATION ) {
+    gatt_client_indication_handler( packet );
     return;
   }
 
@@ -315,14 +376,11 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           // Make sure no errors
           att_status = gatt_event_query_complete_get_att_status( packet );
           if ( att_status != ATT_ERROR_SUCCESS ) {
-            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x.\n",
-                    att_status );
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
             break;
           }
-
-          // Clear all notifications
-          memset( notifications_enabled, -1, MAX_CHARACTERISTICS );
           characteristic_discovery();
 
         default:
@@ -343,8 +401,18 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
                                             curr_total_char_idx] =
               curr_service_idx;
           gatt_event_characteristic_query_result_get_characteristic(
-              packet, &server_characteristic[( curr_char_idx++ ) +
+              packet, &server_characteristic[curr_char_idx +
                                              curr_total_char_idx] );
+
+          // Hacky fix for BTStack issue with notifications later
+          //  - https://github.com/bluekitchen/btstack/issues/678
+          server_characteristic[curr_char_idx + curr_total_char_idx]
+              .end_handle =
+              server_characteristic[curr_char_idx + curr_total_char_idx]
+                  .value_handle +
+              1;
+
+          curr_char_idx++;
           break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -361,8 +429,8 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           // Make sure no errors
           att_status = gatt_event_query_complete_get_att_status( packet );
           if ( att_status != ATT_ERROR_SUCCESS ) {
-            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x.\n",
-                    att_status );
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
             break;
           }
@@ -396,6 +464,14 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
         case GATT_EVENT_QUERY_COMPLETE:
           curr_char_idx++;
           curr_char_descr_idx = 0;
+
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
+            gap_disconnect( connection_handle );
+            break;
+          }
 
           // Discover next characteristic, if any remaining
           if ( curr_char_idx <
@@ -446,6 +522,13 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
         // Done with description
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_QUERY_COMPLETE:
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
+            gap_disconnect( connection_handle );
+            break;
+          }
           curr_char_idx++;
 
           // Read remaining descriptions, if any
@@ -489,12 +572,22 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           server_characteristic_values[curr_char_idx +
                                        curr_total_char_idx]
                                       [value_length] = '\0';
+          server_characteristic_value_lengths[curr_char_idx +
+                                              curr_total_char_idx] =
+              value_length;
           break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         // Done with value
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_QUERY_COMPLETE:
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
+            gap_disconnect( connection_handle );
+            break;
+          }
           curr_char_idx++;
 
           // Read remaining values, if any
@@ -535,22 +628,33 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
           server_characteristic_configurations[curr_char_idx +
                                                curr_total_char_idx] =
               little_endian_read_16( config, 0 );
-
-          // Check whether notifications are enabled
-          notifications_enabled[curr_char_idx + curr_total_char_idx] =
-              ( (char) server_characteristic_configurations
-                    [curr_char_idx + curr_total_char_idx] );
+          break;
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         // Done with configuration
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         case GATT_EVENT_QUERY_COMPLETE:
+          att_status = gatt_event_query_complete_get_att_status( packet );
+          if ( att_status != ATT_ERROR_SUCCESS ) {
+            printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
+                    att_status, __FILE__, __LINE__ );
+            gap_disconnect( connection_handle );
+            break;
+          }
           curr_char_idx++;
           read_characteristic_config();
+          break;
 
         default:
           break;
       }
+      break;
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // Finished Discovery - give to child
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    case TC_W4_READY:
+      child_gatt_event_handler( type_of_packet, packet );
       break;
 
     default:
@@ -559,7 +663,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
 }
 
 // -----------------------------------------------------------------------
-// gatt_client_event_handler
+// gatt_client_notification_handler
 // -----------------------------------------------------------------------
 // Handle asynchronous notifications
 
@@ -571,6 +675,7 @@ void Client::gatt_client_notification_handler( uint8_t* packet )
   uint16_t value_handle =
       gatt_event_notification_get_value_handle( packet );
   const uint8_t* value = gatt_event_notification_get_value( packet );
+  debug( "[BLE] Received notification for 0x%X...\n", value_handle );
 
   // Find the characteristic that the value is for
   int value_char_idx = -1;
@@ -586,6 +691,244 @@ void Client::gatt_client_notification_handler( uint8_t* packet )
             value_length );
     server_characteristic_values[value_char_idx][value_length] = 0;
   }
+
+  // Call custom notification handler
+  notification_handler( value_handle, value, value_length );
+}
+
+// -----------------------------------------------------------------------
+// gatt_client_indication_handler
+// -----------------------------------------------------------------------
+// Handle asynchronous indications
+
+void Client::gatt_client_indication_handler( uint8_t* packet )
+{
+  // Get payload length, value handle, and value
+  uint32_t value_length =
+      gatt_event_indication_get_value_length( packet );
+  uint16_t value_handle =
+      gatt_event_indication_get_value_handle( packet );
+  const uint8_t* value = gatt_event_indication_get_value( packet );
+  debug( "[BLE] Received indication for 0x%X...\n", value_handle );
+
+  // Find the characteristic that the value is for
+  int value_char_idx = -1;
+  for ( int i = 0; i < total_characteristics_discovered; i++ ) {
+    if ( value_handle == server_characteristic[i].value_handle ) {
+      value_char_idx = i;
+    }
+  }
+
+  // Update the characteristic value if found (including null terminator)
+  if ( value_char_idx >= 0 ) {
+    memcpy( server_characteristic_values[value_char_idx], value,
+            value_length );
+    server_characteristic_values[value_char_idx][value_length] = 0;
+  }
+
+  // Call custom notification handler
+  indication_handler( value_handle, value, value_length );
+}
+
+// -----------------------------------------------------------------------
+// Default custom handlers
+// -----------------------------------------------------------------------
+
+void Client::notification_handler( uint16_t       value_handle,
+                                   const uint8_t* value,
+                                   uint32_t       value_length )
+{
+  // Unused value + length
+  (void) value;
+  (void) value_length;
+  debug( "[BLE] Received notification for 0x%X!\n", value_handle );
+}
+
+void Client::indication_handler( uint16_t       value_handle,
+                                 const uint8_t* value,
+                                 uint32_t       value_length )
+{
+  // Unused value + length
+  (void) value;
+  (void) value_length;
+  debug( "[BLE] Received indication for 0x%X!\n", value_handle );
+}
+
+// -----------------------------------------------------------------------
+// Helper functions for enabling notifications/indications
+// -----------------------------------------------------------------------
+
+bool uuid_eq( service_uuid_t                      uuid,
+              const gatt_client_characteristic_t& characteristic )
+{
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // UUID16
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if ( std::holds_alternative<uint16_t>( uuid ) ) {
+    uint16_t uuid16 = std::get<uint16_t>( uuid );
+    return ( uuid16 == characteristic.uuid16 );
+  }
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // UUID128
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  const uint8_t* uuid128 = std::get<const uint8_t*>( uuid );
+  for ( int i = 0; i < 16; i++ ) {
+    if ( uuid128[i] != characteristic.uuid128[i] ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+int Client::enable_notifications( service_uuid_t uuid )
+{
+  if ( state != TC_W4_READY )
+    return -1;
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Iterate to find correct characteristic
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  for ( int idx = 0; idx < total_characteristics_discovered; idx++ ) {
+    if ( uuid_eq( uuid, server_characteristic[idx] ) ) {
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      // Check if notifications are available
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      if ( ( server_characteristic[idx].properties &
+             ATT_PROPERTY_NOTIFY ) == 0 ) {
+        debug(
+            "[BLE] Tried to enable notifications for 0x%X when not available...\n",
+            server_characteristic[idx].value_handle );
+        return -1;
+      }
+
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      // Enable notifications
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      debug( "[BLE] Enabling notifications for value handle 0x%X...\n",
+             server_characteristic[idx].value_handle );
+      uint8_t status =
+          gatt_client_write_client_characteristic_configuration(
+              gatt_client_event_callback, connection_handle,
+              &server_characteristic[idx],
+              GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION );
+      return status;
+    }
+  }
+
+  debug(
+      "[BLE] Tried to enable notifications for non-discovered UUID: " );
+  if ( std::holds_alternative<uint16_t>( uuid ) ) {
+    debug( "0x%X...\n", std::get<uint16_t>( uuid ) );
+  }
+  else {  // UUID128
+    debug( "%s...\n",
+           uuid128_to_str( std::get<const uint8_t*>( uuid ) ) );
+  }
+  return -1;
+}
+
+int Client::enable_indications( service_uuid_t uuid )
+{
+  if ( state != TC_W4_READY )
+    return -1;
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Iterate to find correct characteristic
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  for ( int idx = 0; idx < total_characteristics_discovered; idx++ ) {
+    if ( uuid_eq( uuid, server_characteristic[idx] ) ) {
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      // Check if indications are available
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      if ( ( server_characteristic[idx].properties &
+             ATT_PROPERTY_INDICATE ) == 0 ) {
+        debug(
+            "[BLE] Tried to enable indications for 0x%X when not available...",
+            server_characteristic[idx].value_handle );
+        return -1;
+      }
+
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      // Enable indications
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      uint8_t status =
+          gatt_client_write_client_characteristic_configuration(
+              gatt_client_event_callback, connection_handle,
+              &server_characteristic[idx],
+              GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_INDICATION );
+      return status;
+    }
+  }
+
+  debug(
+      "[BLE] Tried to enable notifications for non-discovered UUID: " );
+  if ( std::holds_alternative<uint16_t>( uuid ) ) {
+    debug( "0x%X...\n", std::get<uint16_t>( uuid ) );
+  }
+  else {  // UUID128
+    debug( "%s...\n",
+           uuid128_to_str( std::get<const uint8_t*>( uuid ) ) );
+  }
+  return -1;
+}
+
+int Client::disable_notifications_indications( service_uuid_t uuid )
+{
+  if ( state != TC_W4_READY )
+    return -1;
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Iterate to find correct characteristic
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  for ( int idx = 0; idx < total_characteristics_discovered; idx++ ) {
+    if ( uuid_eq( uuid, server_characteristic[idx] ) ) {
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      // Disable any previously-enabled characteristics
+      // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+      uint8_t status =
+          gatt_client_write_client_characteristic_configuration(
+              gatt_client_event_callback, connection_handle,
+              &server_characteristic[idx],
+              GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NONE );
+      return status;
+    }
+  }
+
+  debug(
+      "[BLE] Tried to disable characteristics for non-discovered UUID: " );
+  if ( std::holds_alternative<uint16_t>( uuid ) ) {
+    debug( "0x%X...\n", std::get<uint16_t>( uuid ) );
+  }
+  else {  // UUID128
+    debug( "%s...\n",
+           uuid128_to_str( std::get<const uint8_t*>( uuid ) ) );
+  }
+  return -1;
+}
+
+uint16_t Client::value_handle_from_uuid( service_uuid_t uuid )
+{
+  for ( int idx = 0; idx < total_characteristics_discovered; idx++ ) {
+    if ( uuid_eq( uuid, server_characteristic[idx] ) ) {
+      return server_characteristic[idx].value_handle;
+    }
+  }
+  debug( "[BLE] UUID not found: " );
+  if ( std::holds_alternative<uint16_t>( uuid ) ) {
+    debug( "0x%X...\n", std::get<uint16_t>( uuid ) );
+  }
+  else {  // UUID128
+    debug( "%s...\n",
+           uuid128_to_str( std::get<const uint8_t*>( uuid ) ) );
+  }
+  return -1;
 }
 
 // -----------------------------------------------------------------------
@@ -665,8 +1008,7 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
       if ( state != TC_W4_CONNECT )
         return;
 
-      // Initiate service discovery with our handler
-      state = TC_W4_SERVICE_RESULT;
+      // Initiate pairing
       connection_handle =
           hci_subevent_le_connection_complete_get_connection_handle(
               packet );
@@ -689,7 +1031,7 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
       reset();
 
       // If we're not off, start listening again
-      if ( state != TC_OFF ) {
+      if ( state != TC_OFF & should_reconnect() ) {
         start();
       }
       break;
@@ -753,11 +1095,18 @@ void Client::print()
     print_permissions( server_characteristic[idx].properties );
     printf( "\n" );
 
+    printf( "    - Range: 0x%X - 0x%X\n",
+            server_characteristic[idx].start_handle,
+            server_characteristic[idx].end_handle );
+
     printf( "    - Value Handle: " );
     printf( "0x%X", server_characteristic[idx].value_handle );
     printf( "\n" );
 
-    printf( "    - Value: %s", server_characteristic_values[idx] );
+    printf( "    - Value: 0x" );
+    for ( int i = 0; i < server_characteristic_value_lengths[idx]; i++ ) {
+      printf( "%X", server_characteristic_values[idx][i] );
+    }
     printf( "\n" );
   }
 }

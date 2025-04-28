@@ -23,7 +23,7 @@
 #define MAX_SERVICES 7
 
 // Maximum number of characteristics - adjust if necessary
-#define MAX_CHARACTERISTICS 25
+#define MAX_CHARACTERISTICS 35
 
 // -----------------------------------------------------------------------
 // GATT State Machine States
@@ -69,9 +69,36 @@ class Client {
   // BLE Definitions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Child classes will need to override these
+ protected:
+  // Override based on custom device to determine correct service
+  virtual bool correct_service( uint8_t* advertisement_report ) = 0;
 
-  // UUID of service to connect to
-  virtual service_uuid_t get_service_name() = 0;
+  // Override to call once all setup is done
+  virtual void after_discovery() = 0;
+
+  // Handle GATT events after discovery
+  virtual void child_gatt_event_handler( uint8_t  packet_type,
+                                         uint8_t* packet ) = 0;
+
+  // Override to handle notifications/indications
+  virtual void notification_handler( uint16_t       value_handle,
+                                     const uint8_t* value,
+                                     uint32_t       value_length );
+  virtual void indication_handler( uint16_t       value_handle,
+                                   const uint8_t* value,
+                                   uint32_t       value_length );
+  // Whether to reconnect on a disconnection
+  virtual bool should_reconnect() = 0;
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Helper functions for children
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ protected:
+  // Return 0 on success
+  int      enable_notifications( service_uuid_t uuid );
+  int      enable_indications( service_uuid_t uuid );
+  int      disable_notifications_indications( service_uuid_t uuid );
+  uint16_t value_handle_from_uuid( service_uuid_t uuid );
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public accessor functions
@@ -114,7 +141,6 @@ class Client {
   gatt_client_notification_t notification_listener;
 
   // Characteristics
-  char                         notifications_enabled[MAX_CHARACTERISTICS];
   gatt_client_characteristic_t server_characteristic[MAX_CHARACTERISTICS];
   int server_characteristic_service_idx[MAX_CHARACTERISTICS];
   gatt_client_characteristic_descriptors_t
@@ -124,6 +150,7 @@ class Client {
                                             [GATT_MAX_DESCRIPTION_LENGTH];
   char server_characteristic_values[MAX_CHARACTERISTICS]
                                    [GATT_MAX_VALUE_LENGTH];
+  uint32_t server_characteristic_value_lengths[MAX_CHARACTERISTICS];
   uint16_t server_characteristic_configurations[MAX_CHARACTERISTICS];
   int      num_characteristics_discovered[MAX_SERVICES];
   int      total_characteristics_discovered;
@@ -138,9 +165,6 @@ class Client {
   // Protected functions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  protected:
-  // Override based on custom device to determine correct service
-  virtual bool correct_service( uint8_t* advertisement_report ) = 0;
-
   // Helper functions for state transitions
   void reset();
   void off();
@@ -153,6 +177,12 @@ class Client {
   void read_characteristic_value();
   void read_characteristic_config();
 
+  void ( *hci_event_callback )( uint8_t packet_type, uint16_t channel,
+                                uint8_t* packet, uint16_t size );
+  void ( *gatt_client_event_callback )( uint8_t  packet_type,
+                                        uint16_t channel, uint8_t* packet,
+                                        uint16_t size );
+
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Event handlers
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -160,6 +190,7 @@ class Client {
   void gatt_client_event_handler( uint8_t packet_type, uint16_t channel,
                                   uint8_t* packet, uint16_t size );
   void gatt_client_notification_handler( uint8_t* packet );
+  void gatt_client_indication_handler( uint8_t* packet );
   void hci_event_handler( uint8_t packet_type, uint16_t channel,
                           uint8_t* packet, uint16_t size );
 };
