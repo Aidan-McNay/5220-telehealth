@@ -1,41 +1,39 @@
 // =======================================================================
-// button.h
+// switch.h
 // =======================================================================
-// Declaration of the button utilities
+// Declaration of the switch utilities
 
-#ifndef UI_BUTTON_H
-#define UI_BUTTON_H
+#ifndef UI_SWITCH_H
+#define UI_SWITCH_H
 
-enum button_state_t {
-  NotPressed,
-  MaybePressed,
-  Pressed,
-  MaybeNotPressed,
+enum switch_state_t {
+  NotFlipped,
+  MaybeFlipped,
+  Flipped,
+  MaybeNotFlipped,
 };
 
-class Button {
+class Switch {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public accessor functions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  public:
-  Button( int gpio_num );
+  Switch( int gpio_num );
   void update();
-  bool is_pressed() const;
-  bool just_pressed() const;
-  bool just_released() const;
+  bool is_flipped() const;
+  bool just_flipped() const;
+  bool just_unflipped() const;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Protected attributes
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  // int            gpio_num;
-  // button_state_t curr_state;
  private:
-  int gpio_num;  // GPIO pin number for the button
-  button_state_t curr_state = NotPressed;
+  int gpio_num;  // GPIO pin number for the switch
+  switch_state_t curr_state = NotFlipped;
   bool prev_physical = false;
-  bool justPressed = false;
-  bool justReleased = false;
+  bool justFlipped = false;
+  bool justUnflipped = false;
 };
 
-#endif  // UI_BUTTON_H
+#endif  // UI_SWITCH_H
