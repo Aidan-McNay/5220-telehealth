@@ -46,5 +46,6 @@ void LED_hw::blink(int duration_ms)
     gpio_put(gpio_num, 1); // Turn on the LED
     sleep_ms(duration_ms);
     gpio_put(gpio_num, 0); // Turn off the LED
+    sleep_ms(duration_ms);
 }
 

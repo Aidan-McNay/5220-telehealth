@@ -21,7 +21,9 @@ FSM::FSM( int switch_gpio, int button_gpio, int status_led_gpio, int error_led_g
   power_led(power_led_gpio), curr_state(OFF)
 {
     debug("FSM start\n");
-    // status_led.on();
+    
+    power_led.on();
+    power_led_on = true;
     
     transmissions_done_count = 0;
 }
@@ -30,7 +32,7 @@ FSM::FSM( int switch_gpio, int button_gpio, int status_led_gpio, int error_led_g
 // State Transitions
 // -----------------------------------------------------------------------
 
-fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed)
+fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed, bool ready )
 {
     switch (curr_state)
     {
@@ -39,25 +41,16 @@ fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed)
     case IDLE:
         return button_pressed ? START_MEASURE : IDLE;
     case START_MEASURE:
-        // debug("START TO TAKE BP MEASUREMENT\n");
-        // sleep_ms(1000); // Simulate measurement time
         return WAIT_MEASURE;
     case WAIT_MEASURE:
-        // debug("HERE'S WHERE WAIT FOR MEASUREMENT TO BE TAKEN\n");
-        // sleep_ms(5000); // Simulate measurement time
-        //return button_pressed ? START_TRANSMIT : IDLE;
-        return START_TRANSMIT;
+        return ready ? START_TRANSMIT : WAIT_MEASURE;
+        //return START_TRANSMIT;
     case START_TRANSMIT:
-        // debug("START TO TRANSMIT DATA\n");
-        // sleep_ms(1000); // Simulate transmission time
         return WAIT_TRANSMIT;
     case WAIT_TRANSMIT:
-        // debug("HERE'S WHERE WAIT FOR DATA TO BE TRANSMITTED\n");
-        // sleep_ms(5000); // Simulate transmission time
-        return DONE;
+        return ready ? DONE : WAIT_TRANSMIT;
+        // return DONE;
     case DONE:
-        // debug("DONE\n");
-        // sleep_ms(1000); // Simulate done time
         return IDLE;
     default:
         return IDLE;
@@ -70,38 +63,74 @@ fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed)
 
 void FSM::update()
 {
-  // TODO: try moving these updates after the call to "next_state"
-  // status_led.off();
-  // error_led.on();
-
-  on_switch.update();
   button.update();
 
-  bool is_on = on_switch.is_flipped();
-  bool button_pressed = button.just_released();
+  bool is_on = true;
 
-  fsm_state_t next = next_state(curr_state, is_on, button_pressed);
-  //status_led.on();
+  bool button_was_pressed;
+  bool button_is_pressed = false;
 
-  // if (button_pressed && curr_state == OFF) {
-  //   status_led.on();
-  //   status_led_on = true;
-  // } else if (!button_pressed && curr_state != OFF) {
-  //   sleep_ms(1000); // Simulate measurement time
-  //   status_led.off();
-  //   error_led.off();
-  //   status_led_on = false;
-  // }
-
-  if (curr_state == OFF && next != OFF) {
-    power_led.on();
-    power_led_on = true;
+  if (button.is_released()) {
+    button_was_pressed = true;
   }
-  // } else if (curr_state != OFF && next == OFF) {
+  else if (button.just_pressed()) {
+    button_is_pressed = true;
+  }
+
+  bool button_pressed = button_was_pressed && button_is_pressed;
+
+  if (time_since_start < 300) {
+    time_since_start += 5;
+    button_pressed = false; // Let start without a phantom button press from getting setup
+  }
+  if (button_pressed) {
+    button_was_pressed = false;
+    button_is_pressed = false;
+    // status_led.on();
+    // sleep_ms(100);
+  }
+  // else {
   //   status_led.off();
-  //   error_led.off();
-  //   status_led_on = false;
   // }
+
+  bool ready = false;
+  if (time >= 3000) { // Simulate measurement time
+    time = 0;
+    ready = true;
+  } else {
+    time += 5; // Increment time by the update interval (5 ms)
+  }
+
+  // time_since_start += 5; // Increment time since start by the update interval (5 ms)
+
+  // if (ready) {
+  //   power_led.blink(100);
+  //   power_led.blink(100);
+  //   power_led.blink(100);
+  // }
+
+  fsm_state_t next = next_state(curr_state, is_on, button_pressed, ready);
+
+  if (next == IDLE) {
+    ;
+  }
+  else if (next == START_MEASURE) {
+    status_led.on();
+    status_led_on = true;
+  }
+  else if (next == START_TRANSMIT) {
+    status_led.off();
+    // status_led.blink(300);
+    status_led_on = true;
+  }
+  else if (next == DONE) {
+    if (!ready){
+      status_led.blink(300);
+    }
+    transmissions_done_count++;
+    status_led.off();
+    status_led_on = false;
+  }
 
   // if (curr_state == IDLE && next == START_MEASURE) {
   //   status_led.on();

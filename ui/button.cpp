@@ -78,3 +78,8 @@ bool Button::just_released() const
 {
   return justReleased;
 }
+
+bool Button::is_released() const
+{
+  return curr_state == NotPressed;
+}

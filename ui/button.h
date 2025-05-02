@@ -23,6 +23,7 @@ class Button {
   bool is_pressed() const;
   bool just_pressed() const;
   bool just_released() const;
+  bool is_released() const;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Protected attributes

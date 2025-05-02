@@ -46,18 +46,22 @@ class FSM {
   LED_hw status_led;    // GPIO pin number for the first LED
   LED_hw error_led;     // GPIO pin number for the second LED
   LED_hw power_led;     // GPIO pin number for the power LED
-  fsm_state_t curr_state = OFF;
+  fsm_state_t curr_state = IDLE;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Protected attributes
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 //  protected:
   bool switch_on = false;
-  bool button_pressed = false;
+  // bool button_pressed = false;
   bool status_led_on = false;
   bool power_led_on = false;
   bool error_led_on = false;
+  // bool button_pressed_temp = false;
   int transmissions_done_count = 0;
+
+  int time = 0;
+  int time_since_start = 0;
 };
 
 #endif  // UI_STATE_MACHINE_H
