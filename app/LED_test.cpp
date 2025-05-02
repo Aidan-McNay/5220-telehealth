@@ -16,7 +16,6 @@ LED_hw test_led(4);
 int main()
 {
   stdio_init_all();
-  stdio_usb_init();
   sleep_ms(3000);
   debug( "trying led test\n" );
 

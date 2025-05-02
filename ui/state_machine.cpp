@@ -15,13 +15,13 @@
 // Constructor
 // -----------------------------------------------------------------------
 
-FSM::FSM( int switch_gpio, int button_gpio, int status_led_gpio, int error_led_gpio ) :
+FSM::FSM( int switch_gpio, int button_gpio, int status_led_gpio, int error_led_gpio, int power_led_gpio) :
   on_switch(switch_gpio), button(button_gpio), 
   status_led(status_led_gpio), error_led(error_led_gpio), 
-  curr_state(OFF)
+  power_led(power_led_gpio), curr_state(OFF)
 {
     debug("FSM start\n");
-    status_led.on();
+    // status_led.on();
     
     transmissions_done_count = 0;
 }
@@ -71,34 +71,59 @@ fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed)
 void FSM::update()
 {
   // TODO: try moving these updates after the call to "next_state"
+  // status_led.off();
+  // error_led.on();
+
   on_switch.update();
   button.update();
 
   bool is_on = on_switch.is_flipped();
-  bool button_pressed = button.is_pressed();
+  bool button_pressed = button.just_released();
 
   fsm_state_t next = next_state(curr_state, is_on, button_pressed);
+  //status_led.on();
 
-  if (curr_state == IDLE && next == START_MEASURE) {
-    status_led.on();
-    status_led_on = true;
-  } else if (curr_state == START_MEASURE && next == WAIT_MEASURE) {
-    status_led.on();
-    status_led_on = true;
-  } else if (curr_state == WAIT_MEASURE && next == START_TRANSMIT) {
-    status_led.blink(30);
-    status_led_on = true;
-  } else if (curr_state == START_TRANSMIT && next == WAIT_TRANSMIT) {
-    status_led.blink(30);
-    status_led_on = true;
-  } else if (curr_state == WAIT_TRANSMIT && next == DONE) {
-    status_led.off();
-    status_led_on = false;
-  } else if (curr_state == DONE && next == IDLE) {
-    transmissions_done_count++;
-    status_led.off();
-    status_led_on = false;
+  // if (button_pressed && curr_state == OFF) {
+  //   status_led.on();
+  //   status_led_on = true;
+  // } else if (!button_pressed && curr_state != OFF) {
+  //   sleep_ms(1000); // Simulate measurement time
+  //   status_led.off();
+  //   error_led.off();
+  //   status_led_on = false;
+  // }
+
+  if (curr_state == OFF && next != OFF) {
+    power_led.on();
+    power_led_on = true;
   }
+  // } else if (curr_state != OFF && next == OFF) {
+  //   status_led.off();
+  //   error_led.off();
+  //   status_led_on = false;
+  // }
+
+  // if (curr_state == IDLE && next == START_MEASURE) {
+  //   status_led.on();
+  //   status_led_on = true;
+  // } else if (curr_state == START_MEASURE && next == WAIT_MEASURE) {
+  //   status_led.on();
+  //   status_led_on = true;
+  //   sleep_ms(1000); // Simulate measurement time
+  // } else if (curr_state == WAIT_MEASURE && next == START_TRANSMIT) {
+  //   status_led.blink(300);
+  //   status_led_on = true;
+  // } else if (curr_state == START_TRANSMIT && next == WAIT_TRANSMIT) {
+  //   status_led.blink(300);
+  //   status_led_on = true;
+  // } else if (curr_state == WAIT_TRANSMIT && next == DONE) {
+  //   status_led.off();
+  //   status_led_on = false;
+  // } else if (curr_state == DONE && next == IDLE) {
+  //   transmissions_done_count++;
+  //   status_led.off();
+  //   status_led_on = false;
+  // }
 
   curr_state = next;
 }

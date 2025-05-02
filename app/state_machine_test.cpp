@@ -7,7 +7,7 @@
 #include "utils/debug.h"
 #include "pico/stdlib.h"
 
-FSM test_sim(5, 4, 2, 3);
+FSM test_sim(5, 4, 2, 3, 6);
 
 // -----------------------------------------------------------------------
 // main

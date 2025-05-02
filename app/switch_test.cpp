@@ -6,7 +6,7 @@
 #include "utils/pt_cornell_rp2040_v1.h"
 #include "utils/debug.h"
 
-Switch test_switch(4);
+Switch test_switch(5);
 
 // -----------------------------------------------------------------------
 // print_characteristics
@@ -20,7 +20,6 @@ Switch test_switch(4);
 int main()
 {
   stdio_init_all();
-  stdio_usb_init();
   sleep_ms(3000);
   debug( "trying switch test\n" );
 

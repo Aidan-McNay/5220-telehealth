@@ -57,6 +57,7 @@ add_compile_definitions(
   PICO_DEFAULT_LED_PIN=0
 )
 add_subdirectory(lorawan-library-for-pico)
+# TODO ^ this line is giving mad errors...
 
 # ------------------------------------------------------------------------
 # btstack configuration

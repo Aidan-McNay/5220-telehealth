@@ -16,7 +16,6 @@ Button test_button(4);
 int main()
 {
   stdio_init_all();
-  stdio_usb_init();
   sleep_ms(3000);
   debug( "trying button test\n" );
 
