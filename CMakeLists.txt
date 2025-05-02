@@ -146,7 +146,7 @@ foreach(APP_FILE ${APP_FILES})
   pico_add_extra_outputs(${APP_FILE_BIN})
 
   # Allow for printf over USB
-  # pico_enable_stdio_usb(${APP_FILE_BIN} 1)
-  # pico_enable_stdio_uart(${APP_FILE_BIN} 0)
+  pico_enable_stdio_usb(${APP_FILE_BIN} 1)
+  pico_enable_stdio_uart(${APP_FILE_BIN} 0)
   # TODO PUT THESE LINES BACK^^ 
 endforeach(APP_FILE)

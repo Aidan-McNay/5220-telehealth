@@ -21,7 +21,7 @@ const struct lorawan_sx1276_settings sx1276_settings = {
             .mosi = PICO_DEFAULT_SPI_TX_PIN,
             .miso = PICO_DEFAULT_SPI_RX_PIN,
             .sck  = PICO_DEFAULT_SPI_SCK_PIN,
-            .nss  = 8,
+            .nss  = 17,
         },
     .reset = 9,
     .dio0  = 7,

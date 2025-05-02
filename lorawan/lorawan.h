@@ -13,6 +13,7 @@ class LoRaWAN {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public Accessor Functions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ public:
   LoRaWAN();
 
   // Return whether joining is successful
@@ -26,6 +27,7 @@ class LoRaWAN {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  protected:
   bool join_started;
+  bool msg_sent;
 };
 
 #endif  // LORAWAN_LORAWAN_H
