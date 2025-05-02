@@ -20,6 +20,12 @@ class LoRaWAN {
 
   // Return whether sending the message is successful
   bool try_send( const uint8_t* data, uint8_t data_len );
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Protected Attributes
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ protected:
+  bool join_started;
 };
 
 #endif  // LORAWAN_LORAWAN_H
