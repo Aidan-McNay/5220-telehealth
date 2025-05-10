@@ -2,169 +2,174 @@
 // state_machine.cpp
 // =======================================================================
 
-#include "ui/state_machine.h"
-
 #include "pico/stdlib.h"
-#include <stdio.h>
+#include "ui/state_machine.h"
 #include "utils/debug.h"
-
+#include <stdio.h>
 
 // -----------------------------------------------------------------------
 // Constructor
 // -----------------------------------------------------------------------
 
-FSM::FSM( int switch_gpio, int button_gpio, int status_led_gpio, int error_led_gpio, int power_led_gpio) :
-  on_switch(switch_gpio), button(button_gpio), 
-  status_led(status_led_gpio), error_led(error_led_gpio), 
-  power_led(power_led_gpio), ui_omron(), ui_lorawan(), curr_state(OFF)
+FSM::FSM( int button_gpio, int status_led_gpio, int error_led_gpio,
+          int power_led_gpio )
+    : button( button_gpio ),
+      status_led( status_led_gpio ),
+      error_led( error_led_gpio ),
+      power_led( power_led_gpio ),
+      curr_state( IDLE ),
+      time_since_start( 0 ),
+      last_transition_ms( 0 )
 {
-    debug("FSM start\n");
-    
-    power_led.on();
-    power_led_on = true;
+  debug( "FSM start\n" );
 
-    // TODO check this out
-    // ui_omron.connect_to_server();
-    
-    transmissions_done_count = 0;
+  power_led.on();
 }
 
 // -----------------------------------------------------------------------
 // State Transitions
 // -----------------------------------------------------------------------
 
-fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed, bool ready , bool omron_ready, bool lorawan_ready )
+fsm_state_t next_state( fsm_state_t curr_state, bool button_pressed,
+                        bool omron_done, bool lorawan_joined,
+                        bool lorawan_sent )
 {
-    switch (curr_state)
-    {
-    case OFF:
-        return is_on ? IDLE : OFF;
+  switch ( curr_state ) {
     case IDLE:
-        return button_pressed ? START_MEASURE : IDLE;
+      return button_pressed ? START_MEASURE : IDLE;
     case START_MEASURE:
-        return WAIT_MEASURE;
+      return WAIT_MEASURE;
     case WAIT_MEASURE:
-        return omron_ready ? START_TRANSMIT : WAIT_MEASURE;
+      return omron_done ? START_TRANSMIT : WAIT_MEASURE;
     case START_TRANSMIT:
-        return WAIT_TRANSMIT;
+      return lorawan_joined ? WAIT_TRANSMIT : START_TRANSMIT;
     case WAIT_TRANSMIT:
-        return lorawan_ready ? DONE : WAIT_TRANSMIT;
+      return lorawan_sent ? DONE : WAIT_TRANSMIT;
     case DONE:
-        return IDLE;
+      return IDLE;
     default:
-        return IDLE;
-    }
+      return IDLE;
+  }
 }
 
 // -----------------------------------------------------------------------
-// Helper Functions
+// pack_data
+// -----------------------------------------------------------------------
+// Packs our blood pressure data into an array of bytes
+
+uint8_t get_byte( uint16_t data, bool high )
+{
+  if ( high ) {
+    data = data >> 8;
+  }
+  return data & 0xFF;
+}
+
+void pack_data( omron_data_t* unpacked_data, uint8_t packed_data[6] )
+{
+  packed_data[0] = get_byte( unpacked_data->sys_pressure, true );
+  packed_data[1] = get_byte( unpacked_data->sys_pressure, false );
+  packed_data[2] = get_byte( unpacked_data->dia_pressure, true );
+  packed_data[3] = get_byte( unpacked_data->dia_pressure, false );
+  packed_data[4] = get_byte( unpacked_data->bpm, true );
+  packed_data[5] = get_byte( unpacked_data->bpm, false );
+}
+
+// -----------------------------------------------------------------------
+// update
 // -----------------------------------------------------------------------
 
 void FSM::update()
 {
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Get button updates
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
   button.update();
+  bool button_pressed = button.just_pressed();
 
-  bool is_on = true;
-
-  bool button_was_pressed;
-  bool button_is_pressed = false;
-
-  if (button.is_released()) {
-    button_was_pressed = true;
-  }
-  else if (button.just_pressed()) {
-    button_is_pressed = true;
-  }
-
-  bool button_pressed = button_was_pressed && button_is_pressed;
-
-  if (time_since_start < 300) {
+  if ( time_since_start < 300 ) {
     time_since_start += 5;
-    button_pressed = false; // Let start without a phantom button press from getting setup
-  }
-  if (button_pressed) {
-    button_was_pressed = false;
-    button_is_pressed = false;
+    return;  // Let start without a phantom button press
+             // from getting setup
   }
 
-  bool ready = false;
-  if (time >= 3000) { // Simulate measurement time
-    time = 0;
-    ready = true;
-  } else {
-    time += 5; // Increment time by the update interval (5 ms)
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Get Omron updates
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  bool omron_done = omron.omron_ready();
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Get LoRaWAN updates
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  bool lorawan_joined;
+  bool lorawan_sent;
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Take action based on state
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  uint8_t packed_data[6];
+  pack_data( &curr_data, packed_data );
+
+  switch ( curr_state ) {
+    case IDLE:
+      break;
+    case START_MEASURE:
+      omron.connect_to_server();
+      break;
+    case WAIT_MEASURE:
+      if ( omron_done ) {
+        curr_data = omron.curr_data;
+      }
+      break;
+    case START_TRANSMIT:
+      lorawan_joined = lorawan.try_join();
+      break;
+    case WAIT_TRANSMIT:
+      lorawan_sent = lorawan.try_send( packed_data, 6 );
+      break;
+    case DONE:
+      break;
+    default:
+      break;
   }
 
-  bool trying = false;
-  bool lorawan_ready = false;
-  const uint8_t* data = ui_omron.curr_data;
-  // const omron_data_t* data = ui_omron.curr_data;
-  uint8_t data_len = 5;
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Update LEDs
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  bool omron_ready = ui_omron.omron_ready();
-  
+  uint32_t curr_time     = to_ms_since_boot( get_absolute_time() );
+  uint32_t time_in_state = curr_time - last_transition_ms;
 
-  if (trying) {
-    bool lorawan_ready = ui_lorawan.try_send(data, data_len);
+  switch ( curr_state ) {
+    case WAIT_MEASURE:
+      if ( ( time_in_state > 5000 ) & !omron.discovered() ) {
+        error_led.on();
+      }
+      break;
+    case START_TRANSMIT:
+    case WAIT_TRANSMIT:
+      if ( time_in_state > 10000 ) {
+        error_led.blink( 500 );
+      }
+      break;
+    default:
+      error_led.off();
+      break;
   }
 
-  fsm_state_t next = next_state(curr_state, is_on, button_pressed, ready, omron_ready, lorawan_ready);
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Update state
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  if (next == IDLE) {
-    ;
-  }
-  else if (next == START_MEASURE) {
-    status_led.on();
-    status_led_on = true;
-    ui_omron.connect_to_server();
-  }
-  // else if (next == WAIT_MEASURE) {
+  fsm_state_t old_state = curr_state;
+  curr_state = next_state( curr_state, button_pressed, omron_done,
+                           lorawan_joined, lorawan_sent );
 
-  // }
-  else if (next == START_TRANSMIT) {
-    trying = true;
-    status_led.blink(100);
-    // ui_lorawan.try_send(data, data_len);
-    ui_lorawan.try_join();
-    status_led.blink(100);
-    status_led.blink(100);
-    status_led_on = true;
+  if ( old_state != curr_state ) {
+    last_transition_ms = curr_time;
   }
-  else if (next == DONE) {
-    // if (!ready){
-    //   status_led.blink(300);
-    // }
-    transmissions_done_count++;
-    status_led.off();
-    status_led_on = false;
-  }
-
-  curr_state = next;
 }
-
-bool FSM::is_running() const
-{
-  return curr_state != OFF;
-}
-
-bool FSM::is_measuring() const
-{
-  return curr_state == START_MEASURE || curr_state == WAIT_MEASURE;
-}
-
-bool FSM::is_transmitting() const
-{
-  return curr_state == START_TRANSMIT || curr_state == WAIT_TRANSMIT;
-}
-
-bool FSM::is_done() const
-{
-  return curr_state == DONE;
-}
-
-int FSM::transmissions_done() const
-{
-  return transmissions_done_count;
-}
-
-

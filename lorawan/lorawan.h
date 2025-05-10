@@ -6,9 +6,8 @@
 #ifndef LORAWAN_LORAWAN_H
 #define LORAWAN_LORAWAN_H
 
+#include "LmHandler.h"
 #include "lorawan/lorawan_config.h"
-#include "../encryptyion/encryption.h"
-// #include rijndael.h
 #include <cstdint>
 
 class LoRaWAN {
@@ -28,7 +27,9 @@ class LoRaWAN {
   // Private Functions
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  private:
-  void aes128_encrypt_data(const uint8_t* input_data, uint8_t* encrypted_data, uint8_t data_len);
+  int send_confirmed( const void* data, uint8_t data_len,
+                      uint8_t app_port );
+
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Protected Attributes
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

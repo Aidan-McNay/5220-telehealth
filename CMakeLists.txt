@@ -91,13 +91,11 @@ set(SUBDIRS
   ui
 )
 
-set(USER_LIBS "")
+set(ALL_SRC_FILES "")
 
 foreach(SUBDIR ${SUBDIRS})
   unset(SRC_FILES)
   add_subdirectory(${SUBDIR})
-  add_library(${SUBDIR} STATIC ${SRC_FILES})
-  target_link_libraries(${SUBDIR} ${PICO_LIBS})
   foreach(SRC_FILE ${SRC_FILES})
     set_source_files_properties(
       ${SRC_FILE}
@@ -105,7 +103,7 @@ foreach(SUBDIR ${SUBDIRS})
       COMPILE_OPTIONS -O3 -Wall -Wextra -Wpedantic -Werror
     )
   endforeach()
-  set(USER_LIBS ${USER_LIBS} ${SUBDIR})
+  set(ALL_SRC_FILES ${ALL_SRC_FILES} ${SRC_FILES})
 endforeach(SUBDIR)
 
 #-------------------------------------------------------------------------
@@ -136,10 +134,11 @@ add_subdirectory(app)
 foreach(APP_FILE ${APP_FILES})
   get_leaf(APP_FILE_NAME ${APP_FILE})
   remove_extension(APP_FILE_BIN ${APP_FILE_NAME})
-  add_executable(${APP_FILE_BIN} ${APP_FILE})
+  add_executable(${APP_FILE_BIN} ${APP_FILE} ${ALL_SRC_FILES})
+  set_property(TARGET ${APP_FILE_BIN} PROPERTY COMPILE_DEFINITIONS "")
 
   # pull in common dependencies
-  target_link_libraries(${APP_FILE_BIN} ${USER_LIBS} ${PICO_LIBS})
+  target_link_libraries(${APP_FILE_BIN} ${PICO_LIBS})
 
   # create map/bin/hex file etc.
   pico_add_extra_outputs(${APP_FILE_BIN})
@@ -147,5 +146,4 @@ foreach(APP_FILE ${APP_FILES})
   # Allow for printf over USB
   pico_enable_stdio_usb(${APP_FILE_BIN} 1)
   pico_enable_stdio_uart(${APP_FILE_BIN} 0)
-  # TODO PUT THESE LINES BACK^^ 
 endforeach(APP_FILE)

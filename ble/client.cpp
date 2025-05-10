@@ -114,6 +114,18 @@ bool Client::ready()
   return state == TC_W4_READY;
 }
 
+bool Client::discovered()
+{
+  switch ( state ) {
+    case TC_OFF:
+    case TC_IDLE:
+    case TC_W4_SCAN_RESULT:
+      return false;
+    default:
+      return true;
+  }
+}
+
 // -----------------------------------------------------------------------
 // State transition helper functions
 // -----------------------------------------------------------------------

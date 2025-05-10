@@ -111,6 +111,8 @@ class Client {
   void connect_to_server();
   void disconnect_from_server();
 
+  bool discovered();
+
   // Check whether we're done discovery
   bool ready();
 

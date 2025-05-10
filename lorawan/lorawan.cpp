@@ -46,11 +46,26 @@ bool LoRaWAN::try_join()
 }
 
 // -----------------------------------------------------------------------
-// aes128_encrypt_data
+// send_confirmed
 // -----------------------------------------------------------------------
-//encrypts on byte at a time
-void LoRaWAN::aes128_encrypt_data(const uint8_t* input_data, uint8_t* encrypted_data, uint8_t data_len) {
+// A mimic of the LoRaWAN library's `send_unconfirmed`, but with a
+// downlink confirmation to tell when the message was sent
 
+int LoRaWAN::send_confirmed( const void* data, uint8_t data_len,
+                             uint8_t app_port )
+{
+  LmHandlerAppData_t appData;
+
+  appData.Port       = app_port;
+  appData.BufferSize = data_len;
+  appData.Buffer     = (uint8_t*) data;
+
+  if ( LmHandlerSend( &appData, LORAMAC_HANDLER_CONFIRMED_MSG ) !=
+       LORAMAC_HANDLER_SUCCESS ) {
+    return -1;
+  }
+
+  return 0;
 }
 
 // -----------------------------------------------------------------------
@@ -64,7 +79,7 @@ uint32_t msg_send_time;
 bool LoRaWAN::try_send( const uint8_t* data, uint8_t data_len )
 {
   if ( !msg_sent ) {
-    if ( lorawan_send_unconfirmed( data, data_len, 2 ) >= 0 ) {
+    if ( send_confirmed( data, data_len, 2 ) >= 0 ) {
       msg_sent      = true;
       msg_send_time = to_ms_since_boot( get_absolute_time() );
     }
@@ -79,7 +94,7 @@ bool LoRaWAN::try_send( const uint8_t* data, uint8_t data_len )
 
   // Send again after 5 seconds
   if ( to_ms_since_boot( get_absolute_time() ) - msg_send_time > 5000 ) {
-    if ( lorawan_send_unconfirmed( data, data_len, 2 ) >= 0 ) {
+    if ( send_confirmed( data, data_len, 2 ) >= 0 ) {
       msg_send_time = to_ms_since_boot( get_absolute_time() );
     }
   }
