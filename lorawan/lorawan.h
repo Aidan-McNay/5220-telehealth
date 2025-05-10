@@ -7,6 +7,8 @@
 #define LORAWAN_LORAWAN_H
 
 #include "lorawan/lorawan_config.h"
+#include "../encryptyion/encryption.h"
+// #include rijndael.h
 #include <cstdint>
 
 class LoRaWAN {
@@ -22,6 +24,11 @@ class LoRaWAN {
   // Return whether sending the message is successful
   bool try_send( const uint8_t* data, uint8_t data_len );
 
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Private Functions
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ private:
+  void aes128_encrypt_data(const uint8_t* input_data, uint8_t* encrypted_data, uint8_t data_len);
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Protected Attributes
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
