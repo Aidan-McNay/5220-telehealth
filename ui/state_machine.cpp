@@ -3,9 +3,7 @@
 // =======================================================================
 
 #include "ui/state_machine.h"
-#include "ui/switch.h"
-#include "ui/button.h"
-#include "ui/LED_hw.h"
+
 #include "pico/stdlib.h"
 #include <stdio.h>
 #include "utils/debug.h"
@@ -18,12 +16,15 @@
 FSM::FSM( int switch_gpio, int button_gpio, int status_led_gpio, int error_led_gpio, int power_led_gpio) :
   on_switch(switch_gpio), button(button_gpio), 
   status_led(status_led_gpio), error_led(error_led_gpio), 
-  power_led(power_led_gpio), curr_state(OFF)
+  power_led(power_led_gpio), ui_omron(), ui_lorawan(), curr_state(OFF)
 {
     debug("FSM start\n");
     
     power_led.on();
     power_led_on = true;
+
+    // TODO check this out
+    // ui_omron.connect_to_server();
     
     transmissions_done_count = 0;
 }
@@ -32,7 +33,7 @@ FSM::FSM( int switch_gpio, int button_gpio, int status_led_gpio, int error_led_g
 // State Transitions
 // -----------------------------------------------------------------------
 
-fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed, bool ready )
+fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed, bool ready , bool omron_ready, bool lorawan_ready )
 {
     switch (curr_state)
     {
@@ -43,13 +44,11 @@ fsm_state_t next_state(fsm_state_t curr_state, bool is_on, bool button_pressed, 
     case START_MEASURE:
         return WAIT_MEASURE;
     case WAIT_MEASURE:
-        return ready ? START_TRANSMIT : WAIT_MEASURE;
-        //return START_TRANSMIT;
+        return omron_ready ? START_TRANSMIT : WAIT_MEASURE;
     case START_TRANSMIT:
         return WAIT_TRANSMIT;
     case WAIT_TRANSMIT:
-        return ready ? DONE : WAIT_TRANSMIT;
-        // return DONE;
+        return lorawan_ready ? DONE : WAIT_TRANSMIT;
     case DONE:
         return IDLE;
     default:
@@ -86,12 +85,7 @@ void FSM::update()
   if (button_pressed) {
     button_was_pressed = false;
     button_is_pressed = false;
-    // status_led.on();
-    // sleep_ms(100);
   }
-  // else {
-  //   status_led.off();
-  // }
 
   bool ready = false;
   if (time >= 3000) { // Simulate measurement time
@@ -101,15 +95,20 @@ void FSM::update()
     time += 5; // Increment time by the update interval (5 ms)
   }
 
-  // time_since_start += 5; // Increment time since start by the update interval (5 ms)
+  bool trying = false;
+  bool lorawan_ready = false;
+  const uint8_t* data = ui_omron.curr_data;
+  // const omron_data_t* data = ui_omron.curr_data;
+  uint8_t data_len = 5;
 
-  // if (ready) {
-  //   power_led.blink(100);
-  //   power_led.blink(100);
-  //   power_led.blink(100);
-  // }
+  bool omron_ready = ui_omron.omron_ready();
+  
 
-  fsm_state_t next = next_state(curr_state, is_on, button_pressed, ready);
+  if (trying) {
+    bool lorawan_ready = ui_lorawan.try_send(data, data_len);
+  }
+
+  fsm_state_t next = next_state(curr_state, is_on, button_pressed, ready, omron_ready, lorawan_ready);
 
   if (next == IDLE) {
     ;
@@ -117,42 +116,28 @@ void FSM::update()
   else if (next == START_MEASURE) {
     status_led.on();
     status_led_on = true;
+    ui_omron.connect_to_server();
   }
+  // else if (next == WAIT_MEASURE) {
+
+  // }
   else if (next == START_TRANSMIT) {
-    status_led.off();
-    // status_led.blink(300);
+    trying = true;
+    status_led.blink(100);
+    // ui_lorawan.try_send(data, data_len);
+    ui_lorawan.try_join();
+    status_led.blink(100);
+    status_led.blink(100);
     status_led_on = true;
   }
   else if (next == DONE) {
-    if (!ready){
-      status_led.blink(300);
-    }
+    // if (!ready){
+    //   status_led.blink(300);
+    // }
     transmissions_done_count++;
     status_led.off();
     status_led_on = false;
   }
-
-  // if (curr_state == IDLE && next == START_MEASURE) {
-  //   status_led.on();
-  //   status_led_on = true;
-  // } else if (curr_state == START_MEASURE && next == WAIT_MEASURE) {
-  //   status_led.on();
-  //   status_led_on = true;
-  //   sleep_ms(1000); // Simulate measurement time
-  // } else if (curr_state == WAIT_MEASURE && next == START_TRANSMIT) {
-  //   status_led.blink(300);
-  //   status_led_on = true;
-  // } else if (curr_state == START_TRANSMIT && next == WAIT_TRANSMIT) {
-  //   status_led.blink(300);
-  //   status_led_on = true;
-  // } else if (curr_state == WAIT_TRANSMIT && next == DONE) {
-  //   status_led.off();
-  //   status_led_on = false;
-  // } else if (curr_state == DONE && next == IDLE) {
-  //   transmissions_done_count++;
-  //   status_led.off();
-  //   status_led_on = false;
-  // }
 
   curr_state = next;
 }

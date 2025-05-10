@@ -9,6 +9,8 @@
 #include "ui/switch.h"
 #include "ui/button.h"
 #include "ui/LED_hw.h"
+#include "ble/omron.h"
+#include "lorawan/lorawan.h"
 
 // -----------------------------------------------------------------------
 // State Machine States
@@ -41,11 +43,13 @@ class FSM {
   int  transmissions_done() const;
 
  private:
-  Switch on_switch;     // GPIO pin number for the switch
-  Button button;        // GPIO pin number for the button
-  LED_hw status_led;    // GPIO pin number for the first LED
-  LED_hw error_led;     // GPIO pin number for the second LED
-  LED_hw power_led;     // GPIO pin number for the power LED
+  Switch  on_switch;     // GPIO pin number for the switch
+  Button  button;        // GPIO pin number for the button
+  LED_hw  status_led;    // GPIO pin number for the first LED
+  LED_hw  error_led;     // GPIO pin number for the second LED
+  LED_hw  power_led;     // GPIO pin number for the power LED
+  Omron   ui_omron;         // Omron device for blood pressure measurement
+  LoRaWAN ui_lorawan;       // LoRaWAN device for data transmission
   fsm_state_t curr_state = IDLE;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
