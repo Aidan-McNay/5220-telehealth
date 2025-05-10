@@ -164,6 +164,12 @@ Omron::Omron()
   sm_add_event_handler( &sm_event_callback_registration );
 }
 
+void Omron::omron_reset()
+{
+  reset();
+  omron_state = OM_IDLE;
+}
+
 // -----------------------------------------------------------------------
 // Repair when no data found
 // -----------------------------------------------------------------------

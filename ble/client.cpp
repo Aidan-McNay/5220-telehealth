@@ -391,6 +391,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
             printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
                     att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
+            disconnect_from_server();
             break;
           }
           characteristic_discovery();
@@ -444,6 +445,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
             printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
                     att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
+            disconnect_from_server();
             break;
           }
           characteristic_descriptor_discovery();
@@ -482,6 +484,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
             printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
                     att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
+            disconnect_from_server();
             break;
           }
 
@@ -539,6 +542,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
             printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
                     att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
+            disconnect_from_server();
             break;
           }
           curr_char_idx++;
@@ -598,6 +602,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
             printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
                     att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
+            disconnect_from_server();
             break;
           }
           curr_char_idx++;
@@ -651,6 +656,7 @@ void Client::gatt_client_event_handler( uint8_t  packet_type,
             printf( "SERVICE_QUERY_RESULT, ATT Error 0x%02x (%s:%d).\n",
                     att_status, __FILE__, __LINE__ );
             gap_disconnect( connection_handle );
+            disconnect_from_server();
             break;
           }
           curr_char_idx++;
@@ -1034,13 +1040,7 @@ void Client::hci_event_handler( uint8_t packet_type, uint16_t channel,
       // Unregister listener, if necessary
       debug( "[BLE] Disconnecting from %s...\n",
              bd_addr_to_str( server_addr ) );
-      connection_handle = HCI_CON_HANDLE_INVALID;
-      if ( listener_registered ) {
-        listener_registered = false;
-        gatt_client_stop_listening_for_characteristic_value_updates(
-            &notification_listener );
-      }
-      reset();
+      disconnect_from_server();
 
       // If we're not off, start listening again
       if ( state != TC_OFF & should_reconnect() ) {

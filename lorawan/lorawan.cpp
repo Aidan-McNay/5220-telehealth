@@ -3,8 +3,19 @@
 // =======================================================================
 // Definitions of the LoRaWAN class
 
+#include "confirm.h"
 #include "lorawan/lorawan.h"
 #include "utils/debug.h"
+
+LoRaWAN* curr_lorawan = nullptr;
+
+void lorawan_confirm()
+{
+  if ( curr_lorawan ) {
+    debug( "[LoRaWAN] Confirming...\n" );
+    curr_lorawan->confirm();
+  }
+}
 
 // -----------------------------------------------------------------------
 // Constructor
@@ -12,7 +23,9 @@
 
 LoRaWAN::LoRaWAN() : join_started( false ), msg_sent( false )
 {
-  if ( lorawan_init_otaa( &sx1276_settings, LORAWAN_REGION,
+  curr_lorawan = this;
+  on_confirm( lorawan_confirm );
+  if ( lorawan_init_otaa( &sx1276_settings, CUSTOM_LORAWAN_REGION,
                           &otaa_settings ) < 0 ) {
     debug( "[LoRaWAN] Initialization Failed...\n" );
     while ( 1 ) {
@@ -79,6 +92,7 @@ uint32_t msg_send_time;
 bool LoRaWAN::try_send( const uint8_t* data, uint8_t data_len )
 {
   if ( !msg_sent ) {
+    msg_confirmed = false;
     if ( send_confirmed( data, data_len, 2 ) >= 0 ) {
       msg_sent      = true;
       msg_send_time = to_ms_since_boot( get_absolute_time() );
@@ -86,17 +100,23 @@ bool LoRaWAN::try_send( const uint8_t* data, uint8_t data_len )
   }
 
   // Wait for downlink
-  if ( lorawan_receive( receive_msg, 50, &receive_port ) > -1 ) {
-    debug( "Got a response!\n" );
+  if ( msg_confirmed ) {
+    debug( "Got a confirmation!\n" );
     msg_sent = false;
     return true;
   }
 
   // Send again after 5 seconds
   if ( to_ms_since_boot( get_absolute_time() ) - msg_send_time > 5000 ) {
+    msg_confirmed = false;
     if ( send_confirmed( data, data_len, 2 ) >= 0 ) {
       msg_send_time = to_ms_since_boot( get_absolute_time() );
     }
   }
   return false;
+}
+
+void LoRaWAN::confirm()
+{
+  msg_confirmed = true;
 }

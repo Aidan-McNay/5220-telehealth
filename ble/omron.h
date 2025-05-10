@@ -72,6 +72,7 @@ class Omron : public Client {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  public:
   Omron();
+  void omron_reset();
   bool omron_ready();  // Ready for more commands
 
   // Writes the pairing key in pairing mode (currently unneeded)

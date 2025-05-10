@@ -10,6 +10,8 @@
 #include "lorawan/lorawan_config.h"
 #include <cstdint>
 
+void confirm();  // Called to confirm a message
+
 class LoRaWAN {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Public Accessor Functions
@@ -22,6 +24,9 @@ class LoRaWAN {
 
   // Return whether sending the message is successful
   bool try_send( const uint8_t* data, uint8_t data_len );
+
+  // Call to confirm a message has been sent
+  void confirm();
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Private Functions
@@ -36,6 +41,7 @@ class LoRaWAN {
  protected:
   bool join_started;
   bool msg_sent;
+  bool msg_confirmed;
 };
 
 #endif  // LORAWAN_LORAWAN_H

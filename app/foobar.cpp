@@ -13,7 +13,7 @@
 #define STATUS_GPIO 3
 #define ERROR_GPIO 4
 
-FSM top( BUTTON_GPIO, POWER_GPIO, STATUS_GPIO, ERROR_GPIO );
+FSM top( BUTTON_GPIO, STATUS_GPIO, ERROR_GPIO, POWER_GPIO );
 
 static PT_THREAD( update_fsm( struct pt *pt ) )
 {
@@ -22,7 +22,7 @@ static PT_THREAD( update_fsm( struct pt *pt ) )
   // Wait until discovered
   while ( 1 ) {
     top.update();
-    PT_YIELD_usec( 10000 );
+    lorawan_process_timeout_ms( 10 );
   }
 
   PT_END( pt )
@@ -33,6 +33,10 @@ int main( void )
   stdio_init_all();
   // Delay a bit to set up printf connection
   sleep_ms( 10000 );
+
+#ifdef DEBUG
+  lorawan_debug( true );
+#endif
 
   printf( "Telehealth Communication\n" );
 

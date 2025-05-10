@@ -11,4 +11,5 @@ set(APP_FILES
   app/state_machine_test.cpp
   app/LED_test.cpp
   app/lorawan_test.cpp
+  app/foobar.cpp
 PARENT_SCOPE)

@@ -97,6 +97,7 @@
         "text_encoding": "cpp",
         "cinttypes": "cpp",
         "variant": "cpp",
-        "iostream": "cpp"
+        "iostream": "cpp",
+        "rtc-board.h": "c"
     }
 }

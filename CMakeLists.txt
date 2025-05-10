@@ -58,6 +58,18 @@ add_compile_definitions(
 )
 add_subdirectory(lorawan-library-for-pico)
 
+# Hacky way to make our own LoRaWAN patch
+add_library(custom_pico_lorawan INTERFACE)
+
+target_sources(custom_pico_lorawan INTERFACE
+  ${CMAKE_CURRENT_LIST_DIR}/lorawan/lorawan-library-for-pico.c
+  ${CMAKE_CURRENT_LIST_DIR}/lorawan/confirm.c
+)
+target_include_directories(custom_pico_lorawan INTERFACE
+  ${CMAKE_CURRENT_LIST_DIR}/lorawan-library-for-pico/src/include
+)
+target_link_libraries(custom_pico_lorawan INTERFACE pico_loramac_node)
+
 # ------------------------------------------------------------------------
 # btstack configuration
 # ------------------------------------------------------------------------
@@ -82,7 +94,7 @@ set(PICO_LIBS
   pico_btstack_ble
   pico_btstack_cyw43
   pico_cyw43_arch_none
-  pico_lorawan
+  custom_pico_lorawan
 )
 
 set(SUBDIRS

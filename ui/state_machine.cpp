@@ -34,6 +34,8 @@ fsm_state_t next_state( fsm_state_t curr_state, bool button_pressed,
                         bool omron_done, bool lorawan_joined,
                         bool lorawan_sent )
 {
+  // debug( "[FSM] Current State: %d (%d, %d, %d, %d)\n", curr_state,
+  //        button_pressed, omron_done, lorawan_joined, lorawan_sent );
   switch ( curr_state ) {
     case IDLE:
       return button_pressed ? START_MEASURE : IDLE;
@@ -132,6 +134,7 @@ void FSM::update()
       lorawan_sent = lorawan.try_send( packed_data, 6 );
       break;
     case DONE:
+      omron.omron_reset();
       break;
     default:
       break;
@@ -145,15 +148,34 @@ void FSM::update()
   uint32_t time_in_state = curr_time - last_transition_ms;
 
   switch ( curr_state ) {
+    case START_MEASURE:
+    case WAIT_MEASURE:
+      status_led.on();
+    case START_TRANSMIT:
+    case WAIT_TRANSMIT:
+      status_led.blink( 500 );
+      break;
+    default:
+      status_led.off();
+      break;
+  }
+
+  switch ( curr_state ) {
     case WAIT_MEASURE:
       if ( ( time_in_state > 5000 ) & !omron.discovered() ) {
         error_led.on();
+      }
+      else {
+        error_led.off();
       }
       break;
     case START_TRANSMIT:
     case WAIT_TRANSMIT:
       if ( time_in_state > 10000 ) {
         error_led.blink( 500 );
+      }
+      else {
+        error_led.off();
       }
       break;
     default:
