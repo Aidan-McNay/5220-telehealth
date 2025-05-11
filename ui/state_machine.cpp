@@ -33,7 +33,7 @@ FSM::FSM( int button_gpio, int status_led_gpio, int error_led_gpio,
 
 fsm_state_t next_state( fsm_state_t curr_state, bool button_pressed,
                         bool omron_done, bool lorawan_joined,
-                        bool lorawan_sent )
+                        bool lorawan_sent, bool error_occured )
 {
   // debug( "[FSM] Current State: %d (%d, %d, %d, %d)\n", curr_state,
   //        button_pressed, omron_done, lorawan_joined, lorawan_sent );
@@ -43,11 +43,11 @@ fsm_state_t next_state( fsm_state_t curr_state, bool button_pressed,
     case START_MEASURE:
       return WAIT_MEASURE;
     case WAIT_MEASURE:
-      return omron_done ? START_TRANSMIT : WAIT_MEASURE;
+      return error_occured? IDLE: omron_done ? START_TRANSMIT : WAIT_MEASURE;
     case START_TRANSMIT:
       return lorawan_joined ? WAIT_TRANSMIT : START_TRANSMIT;
     case WAIT_TRANSMIT:
-      return lorawan_sent ? DONE : WAIT_TRANSMIT;
+      return error_occured? IDLE: lorawan_sent ? DONE : WAIT_TRANSMIT;
     case DONE:
       return IDLE;
     default:
@@ -98,6 +98,12 @@ void FSM::update()
   }
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Handling Errors
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  bool error_occured = false;
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Get Omron updates
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -136,6 +142,20 @@ void FSM::update()
       break;
     case WAIT_TRANSMIT:
       aes128_encrypt_6byte_msg(key, packed_data, ciphertext);
+      debug( "Ciphertext: " );
+      for ( int i = 0; i < 16; i++ ) {
+        debug( "%02x ", ciphertext[i] );
+      }
+      debug( "\n" );
+      debug( "Packed data: " );
+      for ( int i = 0; i < 6; i++ ) {
+        debug( "%02x ", packed_data[i] );
+      }
+      debug( "\n key: " );
+      for ( int i = 0; i < 16; i++ ) {
+        debug( "%02x ", key[i] );
+      }
+
       lorawan_sent = lorawan.try_send(ciphertext, 16); //Originally sent raw packed_data 6 bites.
       break;
     case DONE:
@@ -168,9 +188,16 @@ void FSM::update()
   }
 
   switch ( curr_state ) {
+    case IDLE:
+      error_occured = false;
+      break;
+    case START_MEASURE:
+      error_led.off();
+      break;
     case WAIT_MEASURE:
-      if ( ( time_in_state > 15000 ) & !omron.discovered() ) {
+      if ( ( time_in_state > 45000 ) & !omron.discovered() ) {
         error_led.on();
+        error_occured = true;
       }
       else {
         error_led.off();
@@ -180,8 +207,9 @@ void FSM::update()
       error_led.off();
       break;
     case WAIT_TRANSMIT:
-      if ( time_in_state > 30000 ) {
+      if ( time_in_state > 45000 ) {
         error_led.blink( 500 );
+        error_occured = true;
       }
       else {
         error_led.off();
@@ -201,7 +229,7 @@ void FSM::update()
 
   fsm_state_t old_state = curr_state;
   curr_state = next_state( curr_state, button_pressed, omron_done,
-                           lorawan_joined, lorawan_sent );
+                           lorawan_joined, lorawan_sent , error_occured);
 
   if ( old_state != curr_state ) {
     last_transition_ms = curr_time;

@@ -21,7 +21,7 @@ int main()
   debug( "trying state machine test 3\n" );
 
   while ( true ) {
-    debug( "running simulation\n" );
+    //debug( "running simulation\n" );
     test_sim.update();
 
     // if (test_sim.is_measuring()) {
