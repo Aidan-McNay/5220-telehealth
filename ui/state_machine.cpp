@@ -5,6 +5,7 @@
 #include "pico/stdlib.h"
 #include "ui/state_machine.h"
 #include "utils/debug.h"
+#include "encryption/encryption.h"
 #include <stdio.h>
 
 // -----------------------------------------------------------------------
@@ -113,7 +114,10 @@ void FSM::update()
   // Take action based on state
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   
-  uint8_t key[16] = {0x10, 0x20, 0x30, ..., 0xFF};  // Static key
+  uint8_t key[16] = {
+    0xe7, 0xa5, 0xc3, 0xf2, 0xd4, 0x8a, 0x0e, 0x3b,
+    0xc9, 0x61, 0x17, 0xb5, 0xfd, 0xfb, 0xa2, 0x47
+  };
   uint8_t ciphertext[16];
   uint8_t packed_data[6];
   pack_data( &curr_data, packed_data );

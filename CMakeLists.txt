@@ -101,6 +101,7 @@ set(SUBDIRS
   ble
   lorawan
   ui
+  encryption
 )
 
 set(ALL_SRC_FILES "")
