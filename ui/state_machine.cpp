@@ -123,8 +123,6 @@ void FSM::update()
   pack_data( &curr_data, packed_data );
 
   switch ( curr_state ) {
-    case IDLE:
-      break;
     case START_MEASURE:
       omron.connect_to_server();
       break;
@@ -156,11 +154,13 @@ void FSM::update()
 
   switch ( curr_state ) {
     case START_MEASURE:
+      status_led.on();
     case WAIT_MEASURE:
       status_led.on();
     case START_TRANSMIT:
+      status_led.blink( 250 );
     case WAIT_TRANSMIT:
-      status_led.blink( 500 );
+      status_led.blink( 750 );
       break;
     default:
       status_led.off();
@@ -169,7 +169,7 @@ void FSM::update()
 
   switch ( curr_state ) {
     case WAIT_MEASURE:
-      if ( ( time_in_state > 5000 ) & !omron.discovered() ) {
+      if ( ( time_in_state > 15000 ) & !omron.discovered() ) {
         error_led.on();
       }
       else {
@@ -177,13 +177,18 @@ void FSM::update()
       }
       break;
     case START_TRANSMIT:
+      error_led.off();
+      break;
     case WAIT_TRANSMIT:
-      if ( time_in_state > 10000 ) {
+      if ( time_in_state > 30000 ) {
         error_led.blink( 500 );
       }
       else {
         error_led.off();
       }
+      break;
+    case DONE:
+      error_led.off();
       break;
     default:
       error_led.off();
