@@ -34,7 +34,7 @@ FSM::FSM( int button_gpio, int status_led_gpio, int error_led_gpio,
 
 fsm_state_t next_state( fsm_state_t curr_state, bool button_pressed,
                         bool omron_done, bool lorawan_joined,
-                        bool lorawan_sent )
+                        bool lorawan_sent, int num_sent )
 {
   // debug( "[FSM] Current State: %d (%d, %d, %d, %d)\n", curr_state,
   //        button_pressed, omron_done, lorawan_joined, lorawan_sent );
@@ -48,7 +48,7 @@ fsm_state_t next_state( fsm_state_t curr_state, bool button_pressed,
     case START_TRANSMIT:
       return lorawan_joined ? WAIT_TRANSMIT : START_TRANSMIT;
     case WAIT_TRANSMIT:
-      return lorawan_sent ? DONE : WAIT_TRANSMIT;
+      return ( lorawan_sent && ( num_sent == 4 ) ) ? DONE : WAIT_TRANSMIT;
     case DONE:
       return IDLE;
     default:
@@ -130,10 +130,14 @@ void FSM::update()
       break;
     case START_TRANSMIT:
       lorawan_joined = lorawan.try_join();
+      num_sent       = 0;
       break;
     case WAIT_TRANSMIT:
       aes128_encrypt_6byte_msg( lorawan_key, packed_data, ciphertext );
-      lorawan_sent = lorawan.try_send( packed_data, 6 );
+      lorawan_sent = lorawan.try_send( &( ciphertext[4 * num_sent] ), 4 );
+      if ( lorawan_sent ) {
+        num_sent++;
+      }
       break;
     case DONE:
       omron.omron_reset();
@@ -191,7 +195,7 @@ void FSM::update()
 
   fsm_state_t old_state = curr_state;
   curr_state = next_state( curr_state, button_pressed, omron_done,
-                           lorawan_joined, lorawan_sent );
+                           lorawan_joined, lorawan_sent, num_sent );
 
   if ( old_state != curr_state ) {
     last_transition_ms = curr_time;

@@ -7,11 +7,11 @@
 #define UI_STATE_MACHINE_H
 
 #include "ble/omron.h"
+#include "encryption/encryption.h"
 #include "lorawan/lorawan.h"
 #include "ui/LED_hw.h"
 #include "ui/button.h"
 #include "ui/switch.h"
-#include "encryption/encryption.h"
 
 // -----------------------------------------------------------------------
 // State Machine States
@@ -53,6 +53,7 @@ class FSM {
   int          time_since_start;
   uint32_t     last_transition_ms;
   omron_data_t curr_data;
+  int          num_sent;
 };
 
 #endif  // UI_STATE_MACHINE_H
