@@ -112,7 +112,9 @@ void FSM::update()
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Take action based on state
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
+  
+  uint8_t key[16] = {0x10, 0x20, 0x30, ..., 0xFF};  // Static key
+  uint8_t ciphertext[16];
   uint8_t packed_data[6];
   pack_data( &curr_data, packed_data );
 
@@ -131,8 +133,8 @@ void FSM::update()
       lorawan_joined = lorawan.try_join();
       break;
     case WAIT_TRANSMIT:
-      lorawan_sent = lorawan.try_send( packed_data, 6 );
-      aes128_encrypt_6byte_msg( key[16], msg[6], ciphertext[16]);
+      aes128_encrypt_6byte_msg(key, packed_data, ciphertext);
+      lorawan_sent = lorawan.try_send(ciphertext, 16); //Originally sent raw packed_data 6 bites.
       break;
     case DONE:
       omron.omron_reset();
