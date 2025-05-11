@@ -11,6 +11,7 @@
 #include "ui/LED_hw.h"
 #include "ui/button.h"
 #include "ui/switch.h"
+#include "encryption/encryption.h"
 
 // -----------------------------------------------------------------------
 // State Machine States

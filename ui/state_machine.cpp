@@ -132,6 +132,7 @@ void FSM::update()
       break;
     case WAIT_TRANSMIT:
       lorawan_sent = lorawan.try_send( packed_data, 6 );
+      aes128_encrypt_6byte_msg( key[16], msg[6], ciphertext[16]);
       break;
     case DONE:
       omron.omron_reset();
