@@ -49,26 +49,18 @@ key = bytes.fromhex("e7a5c3f2d48a0e3bc96117b5fdfba247")
 
 #Subscribe to TTN
 def on_connect(client, userdata, flags, rc):
+    if rc == 0:
 
+        print("Connected to broker")
 
-if rc == 0:
+        global Connected                #Use global variable
+        Connected = True                #Signal connection
 
-    print("Connected to broker")
+    else:
 
-    global Connected                #Use global variable
-    Connected = True                #Signal connection
-
-else:
-
-    print("Connection failed")
+        print("Connection failed")
 
 def on_message(client, userdata, message):
-#Old Lab 5 and 6 Code
-# print("")
-# print("Message received: "  + str(message.payload))
-
-# with open('myData.txt','a+') as f:
-#      f.write(str(message.payload)[2:-1]+"\n")
 
 #Process TTN
 print("\nMessage received")
@@ -118,7 +110,7 @@ Connected = False   #global variable for the state of the connection
 broker_address= "nam1.cloud.thethings.network"  #host
 port = 1883                         #Broker port
 user = "mae4220-telehealth@ttn" #Connection username
-password = "NNSXS.5I5BKPVDVCVBZLXYKADNM47PPGYYKGAD5XGGP3I.RNGEWQB3N6Y7R3QCIWDZYRZFC5KCR6Q32VECNUXXHT5KX4TFIB3A" #<--  Put your TTN V3 API key in quotes     #Connection password
+password = "NNSXS.5I5BKPVDVCVBZLXYKADNM47PPGYYKGAD5XGGP3I.RNGEWQB3N6Y7R3QCIWDZYRZFC5KCR6Q32VECNUXXHT5KX4TFIB3A" #Connection password
 
 client = mqttClient.Client("Python")               #create new instance
 client.username_pw_set(user, password=password)    #set username and password
