@@ -133,22 +133,6 @@ void FSM::update()
       break;
     case WAIT_TRANSMIT:
       aes128_encrypt_6byte_msg( lorawan_key, packed_data, ciphertext );
-      debug( "[FSM] Ciphertext: " );
-      for ( int i = 0; i < 16; i++ ) {
-        debug( "%02x ", ciphertext[i] );
-      }
-      debug( "\n" );
-      debug( "[FSM] Packed data: " );
-      for ( int i = 0; i < 6; i++ ) {
-        debug( "%02x ", packed_data[i] );
-      }
-      debug( "\n" );
-      debug( "[FSM] Key: " );
-      for ( int i = 0; i < 16; i++ ) {
-        debug( "%02x ", lorawan_key[i] );
-      }
-      debug( "\n" );
-
       lorawan_sent = lorawan.try_send( ciphertext, 16 );
       break;
     case DONE:
@@ -181,7 +165,7 @@ void FSM::update()
 
   switch ( curr_state ) {
     case WAIT_MEASURE:
-      if ( ( time_in_state > 45000 ) & !omron.discovered() ) {
+      if ( ( time_in_state > 15000 ) & !omron.discovered() ) {
         error_led.on();
       }
       else {
@@ -189,7 +173,7 @@ void FSM::update()
       }
       break;
     case WAIT_TRANSMIT:
-      if ( time_in_state > 45000 ) {
+      if ( time_in_state > 20000 ) {
         error_led.blink( 500 );
       }
       else {
