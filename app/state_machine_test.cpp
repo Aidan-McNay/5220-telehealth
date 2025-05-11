@@ -7,7 +7,7 @@
 #include "utils/debug.h"
 #include "utils/pt_cornell_rp2040_v1.h"
 
-FSM test_sim( 22, 4, 5, 6 );
+FSM test_sim( 22, 3, 4, 2 );
 
 // -----------------------------------------------------------------------
 // main
