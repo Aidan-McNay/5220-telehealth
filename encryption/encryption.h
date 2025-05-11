@@ -6,7 +6,7 @@
 #ifndef ENCRYPTION_ENCRYPTION_H
 #define ENCRYPTION_ENCRYPTION_H
 
-#include rijndael.h
+#include "rijndael.h"
 #include <stdint.h>
 #include <string.h>
 
