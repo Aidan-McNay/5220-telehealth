@@ -521,7 +521,7 @@
       "gencad": "",
       "idf": "",
       "netlist": "",
-      "plot": "gerber_files/",
+      "plot": "corrected_gerber/",
       "pos_files": "",
       "specctra_dsn": "",
       "step": "../../../../Downloads/blood_pressure.step",

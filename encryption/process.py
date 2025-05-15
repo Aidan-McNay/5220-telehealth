@@ -1,121 +1,62 @@
-import sys
-import subprocess
+#!/usr/bin/env python3
 
-def install_if_needed(package):
-    try:
-        __import__(package)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-# Package names for import vs pip can differ
-install_if_needed("Crypto")         # pycryptodome
-install_if_needed("dateutil")       # python-dateutil
-install_if_needed("pytz")           # pytz
-install_if_needed("paho.mqtt.client")  # paho-mqtt
-
-import struct
-import csv
-import os
-from datetime import datetime
-from Crypto.Cipher import AES
-from datetime import date
-from dateutil.parser import parse
-import pytz
 import paho.mqtt.client as mqttClient
 import time
+import csv
+import os
 import json
-import base64
 
-def decryption(key: bytes, ciphertext: bytes) -> bytes:
-    """
-    Decrypt a 16-byte AES-128 ciphertext using ECB mode.
-
-    Parameters:
-        key (bytes): 16-byte AES key.
-        ciphertext (bytes): 16-byte ciphertext.
-
-    Returns:
-        bytes: Decrypted plaintext.
-    """
-    assert len(key) == 16, "Key must be 16 bytes for AES-128"
-    assert len(ciphertext) == 16, "Ciphertext must be 16 bytes"
-
-    cipher = AES.new(key, AES.MODE_ECB)
-    plaintext = cipher.decrypt(ciphertext)
-    return plaintext
-
-#Hardcoded encryption key
-key = bytes.fromhex("e7a5c3f2d48a0e3bc96117b5fdfba247")
-
-#Subscribe to TTN
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-
         print("Connected to broker")
-
-        global Connected                #Use global variable
-        Connected = True                #Signal connection
-
+        global Connected
+        Connected = True
     else:
-
         print("Connection failed")
 
 def on_message(client, userdata, message):
+    print("\nMessage received.")
 
-#Process TTN
-print("\nMessage received")
+    try:
+        payload = json.loads(message.payload.decode("utf-8"))
+        decoded = payload["uplink_message"]["decoded_payload"]
+        bpm = decoded.get("bpm")
+        systolic = decoded.get("systolic")
+        diastolic = decoded.get("diastolic")
 
-payload_str = message.payload.decode('utf-8')
-payload_json = json.loads(payload_str)
+        # File path
+        file_path = "myData.csv"
+        file_exists = os.path.isfile(file_path)
 
-frm_payload_base64 = payload_json['uplink_message']['frm_payload']
-ciphertext = base64.b64decode(frm_payload_base64)
+        with open(file_path, 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
 
-key = b'[AES key]'
+            # Write header if file doesn't exist yet
+            if not file_exists:
+                writer.writerow(["bpm", "systolic", "diastolic"])
 
-#Decrypt
-plaintext = decryption(key, ciphertext)
+            # Write the actual data
+            writer.writerow([bpm, systolic, diastolic])
 
-print("Decrypted plaintext:", plaintext)
+        print(f"Logged: bpm={bpm}, systolic={systolic}, diastolic={diastolic}")
 
-# Extract systolic, diastolic, bpm (2 bytes each)
-systolic = int.from_bytes(plaintext[0:2], byteorder='big')
-diastolic = int.from_bytes(plaintext[2:4], byteorder='big')
-bpm = int.from_bytes(plaintext[4:6], byteorder='big')
+    except Exception as e:
+        print(f"Error processing message: {e}")
 
-print(f"Systolic: {systolic}, Diastolic: {diastolic}, BPM: {bpm}")
+# --- MQTT setup ---
+Connected = False
 
- # Prepare CSV logging
-timestamp = datetime.now().isoformat()
+broker_address = "nam1.cloud.thethings.network"
+port = 1883
+user = "mae4220-telehealth@ttn"
+password = "NNSXS.5I5BKPVDVCVBZLXYKADNM47PPGYYKGAD5XGGP3I.RNGEWQB3N6Y7R3QCIWDZYRZFC5KCR6Q32VECNUXXHT5KX4TFIB3A"
 
-file_exists = os.path.isfile('bp_log.csv')
+client = mqttClient.Client("Python")
+client.username_pw_set(user, password=password)
+client.on_connect = on_connect
+client.on_message = on_message
 
-# Write the new reading to CSV
-with open('bp_log.csv', mode='a', newline='') as f:
-    writer = csv.DictWriter(f, fieldnames=["time", "systolic_pressure", "diastolic_pressure", "bpm"])
+client.connect(broker_address, port, 60)
+client.subscribe(f"v3/{user}/devices/+/up")
 
-    # If the file is new, write the header
-    if not (file_exists):
-        writer.writeheader()
-
-    writer.writerow({
-    "time": timestamp,
-    "systolic_pressure": systolic,
-    "diastolic_pressure": diastolic,
-    "bpm": bpm
-    })
-
-Connected = False   #global variable for the state of the connection
-
-broker_address= "nam1.cloud.thethings.network"  #host
-port = 1883                         #Broker port
-user = "mae4220-telehealth@ttn" #Connection username
-password = "NNSXS.5I5BKPVDVCVBZLXYKADNM47PPGYYKGAD5XGGP3I.RNGEWQB3N6Y7R3QCIWDZYRZFC5KCR6Q32VECNUXXHT5KX4TFIB3A" #Connection password
-
-client = mqttClient.Client("Python")               #create new instance
-client.username_pw_set(user, password=password)    #set username and password
-client.on_connect= on_connect                      #attach function to callback
-client.on_message= on_message                      #attach function to callback
-client.connect(broker_address,port,60) #connect
-client.subscribe(f"v3/{user}/devices/+/up") #subscribe
-client.loop_forever() #then keep listening forever
+client.loop_forever()

@@ -6265,7 +6265,7 @@
 				)
 			)
 		)
-		(property "Footprint" "DMG2305UX-7:SOT91P240X110-3N_DMG2305UX-7"
+		(property "Footprint" "DMG2305UX_7:SOT91P240X110-3N_DMG2305UX-7"
 			(at 146.05 142.24 0)
 			(effects
 				(font
